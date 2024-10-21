@@ -28,3 +28,5 @@ gpg --batch --yes --passphrase "mySecret1234" --decrypt \
   --output decrypted.tar.gz \
   data/bw-export-xxx.tar.gz.gpg
 ```
+
+There's also a wrapper script for that: [decrypt.sh](decrypt.sh)
