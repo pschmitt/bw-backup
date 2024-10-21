@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-BW_CONFIG_HOME="${BW_CONFIG_HOME:-$HOME/.config/Bitwarden CLI}"
-LOCKFILE="${TMPDIR:-/tmp}/bw-backup.lock"
-
 if [[ -n "$DEBUG" ]]
 then
   set -x
 fi
+
+BW_CONFIG_HOME="${BW_CONFIG_HOME:-$HOME/.config/Bitwarden CLI}"
+LOCKFILE="${TMPDIR:-/tmp}/bw-backup.lock"
 
 echo_info() {
   echo -e "\e[1;34mNFO\e[0m ${*}" >&2
@@ -200,8 +200,14 @@ then
   if [[ -e "$LOCKFILE" ]]
   then
     echo_error "$LOCKFILE exists. Another instance is running."
-    cat "$LOCKFILE"
-    exit 1
+    cat "$LOCKFILE" >&2
+
+    if [[ -z "$IGNORE_LOCK" ]]
+    then
+      exit 1
+    fi
+
+    echo_warning "Ignoring lock file"
   fi
 
   # Create the lock file
