@@ -10,6 +10,7 @@ podman run -it --rm \
   -e BW_PASSWORD=xxxx \
   -e ENCRYPTION_PASSPHRASE=mySecret1234 \
   -e KEEP=10 \
+  -e CRON="0 23 * * *" \
   ghcr.io/pschmitt/bw-backup:latest
 ```
 
@@ -17,6 +18,8 @@ podman run -it --rm \
 the given passphrase.
 
 `KEEP` is optional. If set the script will keep the last `KEEP` backups.
+
+`CRON` is optional. If set the script will run the backup script periodically.
 
 ## How do I decrypt my backup?
 

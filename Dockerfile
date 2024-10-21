@@ -16,11 +16,12 @@ RUN apk add --no-cache curl jq unzip && \
 FROM ubuntu:latest
 # hadolint ignore=DL3008
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends bash jq gnupg2 && \
-    rm -rf /var/lib/apt/list/*
+    apt-get install -y --no-install-recommends bash cron gnupg2 jq && \
+    rm -rf /var/lib/apt/list/* /etc/cron.*/*
 
 # NOTE bw is dynamically linked!
 COPY --from=bw /bw /usr/local/bin/bw
+COPY bw-backup.sh /usr/local/bin/bw-backup
 COPY entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 
@@ -30,4 +31,5 @@ ENV BW_URL=https://bitwarden.com \
     BW_CLIENTSECRET="changeme" \
     BW_PASSWORD="changeme" \
     ENCRYPTION_PASSPHRASE= \
-    KEEP=10
+    KEEP=10 \
+    CRON=
