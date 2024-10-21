@@ -16,7 +16,7 @@ RUN apk add --no-cache curl jq unzip && \
 FROM ubuntu:latest
 # hadolint ignore=DL3008
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends bash jq && \
+    apt-get install -y --no-install-recommends bash jq gnupg2 && \
     rm -rf /var/lib/apt/list/*
 
 # NOTE bw is dynamically linked!
@@ -28,4 +28,6 @@ VOLUME ["/data"]
 ENV BW_URL=https://bitwarden.com \
     BW_CLIENTID="user.xxxx" \
     BW_CLIENTSECRET="changeme" \
-    BW_PASSWORD="changeme"
+    BW_PASSWORD="changeme" \
+    ENCRYPTION_PASSPHRASE= \
+    KEEP=10
