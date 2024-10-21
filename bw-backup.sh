@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+BW_CONFIG_HOME="${BW_CONFIG_HOME:-$HOME/.config/Bitwarden CLI}"
+LOCKFILE="${TMPDIR:-/tmp}/bw-backup.lock"
+
 if [[ -n "$DEBUG" ]]
 then
   set -x
@@ -25,7 +28,7 @@ bw_set_url() {
 
   local bw_current_server
   # Check if there is a config file
-  if [[ -e ~/.config/Bitwarden\ CLI/data.json ]]
+  if [[ -e ${BW_CONFIG_HOME}/data.json ]]
   then
     bw_current_server=$(bw config server)
   fi
@@ -70,6 +73,9 @@ bw_export() {
   export BW_SESSION
   echo_info "bw status"
   bw status
+
+  echo_info "Force syncing vault"
+  bw sync --force
 
   mkdir -p /data
   if [[ -e "$CLEAR_DATA" ]]
@@ -157,7 +163,7 @@ bw_export_attachments() {
       fi
 
       echo_info "Downloading attachment '$att_name'"
-      if ! bw get attachment "$att_id" --itemid "$item_id" --output "$att_dest" || \
+      if ! bw get attachment "$att_id" --itemid "$item_id" --output "$att_dest" <<< "$BW_PASSWORD" || \
          [[ ! -e "$att_dest" ]]
       then
         echo_warning "Download of '$att_name' (id: $att_id) failed."
@@ -185,11 +191,21 @@ backup_rotate() {
 }
 
 cleanup() {
-  rm -rf "$BW_BACKUP_DIR"
+  bw logout
+  rm -rf "$BW_BACKUP_DIR" "$LOCKFILE" "$BW_CONFIG_HOME"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
 then
+  if [[ -e "$LOCKFILE" ]]
+  then
+    echo_error "$LOCKFILE exists. Another instance is running."
+    cat "$LOCKFILE"
+    exit 1
+  fi
+
+  # Create the lock file
+  echo "pid: $$ date: $(date -Iseconds)" > "$LOCKFILE"
   trap cleanup EXIT ERR INT TERM
 
   bw_export "$@"
