@@ -8,8 +8,8 @@ then
 fi
 
 forward_signal() {
-  echo "Caught signal, forwarding..."
-  kill -s "$1" "$CHILD" 2>/dev/null
+  echo "Caught signal, forwarding..." >&2
+  kill -s "$1" "$CHILD" >&2
 }
 
 # Trap termination signals and forward them to the child process
@@ -32,6 +32,12 @@ BASH_ENV=/etc/environment
 
 $CRON $USER /usr/local/bin/bw-backup >/proc/1/fd/1 2>/proc/1/fd/2
 EOF
+
+if [[ -n "$START_RIGHT_NOW" ]]
+then
+  echo_info "Running backup right away! cron will take over after"
+  /usr/local/bin/bw-backup "$@"
+fi
 
 echo_info "Starting cron"
 cron -f -l 2 &
