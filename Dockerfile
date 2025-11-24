@@ -1,7 +1,7 @@
 # hadolint ignore=DL3007
 FROM alpine:latest AS bw
 # hadolint ignore=DL4006,SC2035,DL3018
-RUN apk add --no-cache curl jq unzip && \
+RUN apk add --no-cache ca-certificates curl jq unzip && \
     BW_URL=$(curl -H "Accept: application/vnd.github+json" \
       https://api.github.com/repos/bitwarden/clients/releases | \
       jq -er ' \
