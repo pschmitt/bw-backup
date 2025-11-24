@@ -16,7 +16,7 @@ RUN apk add --no-cache ca-certificates curl jq unzip && \
 FROM ubuntu:latest
 # hadolint ignore=DL3008
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends bash cron curl gnupg2 jq && \
+    apt-get install -y --no-install-recommends bash ca-certificates cron curl gnupg2 jq && \
     rm -rf /var/lib/apt/list/* /etc/cron.*/*
 
 # NOTE bw is dynamically linked!
