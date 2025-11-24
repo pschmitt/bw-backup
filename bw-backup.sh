@@ -246,21 +246,21 @@ then
   echo "pid: $$ date: $(date -Iseconds)" > "$LOCKFILE"
   trap cleanup EXIT INT TERM ERR
 
-  healthcheck_ping start "Starting backup (bw-backup)"
+  healthcheck_ping start "Starting bw-backup"
 
   if ! bw_export "$@"
   then
     RC=$?
-    healthcheck_ping fail "Backup failed (bw-backup, rc: $RC)"
+    healthcheck_ping fail "Backup failed (rc: $RC)"
     exit "$RC"
   fi
 
   if ! backup_rotate
   then
     RC=$?
-    healthcheck_ping fail "Backup rotation failed (bw-backup, rc: $RC)"
+    healthcheck_ping fail "Backup rotation failed (rc: $RC)"
     exit "$RC"
   fi
 
-  healthcheck_ping "" "Backup successful (bw-backup)"
+  healthcheck_ping "" "Backup successful"
 fi
