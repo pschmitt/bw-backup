@@ -165,7 +165,8 @@ bw_export() {
 bw_export_attachments() {
   local items_with_attachements
   mapfile -t items_with_attachements < <(
-    jq -cer '.[] | select(has("attachments"))' "${BW_BACKUP_DIR}/bitwarden-list-items.json"
+    jq -cer '.[] | select(has("attachments"))' \
+      "${BW_BACKUP_DIR}/bitwarden-list-items.json"
   )
 
   local item_data item_id item_att_dir
