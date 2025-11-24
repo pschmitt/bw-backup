@@ -7,6 +7,7 @@ fi
 
 BW_CONFIG_HOME="${BW_CONFIG_HOME:-$HOME/.config/Bitwarden CLI}"
 LOCKFILE="${TMPDIR:-/tmp}/bw-backup.lock"
+HEALTHCHECK_URL="${HEALTHCHECK_URL%/}"
 
 echo_info() {
   echo -e "\e[1;34mNFO\e[0m ${*}" >&2
@@ -18,6 +19,33 @@ echo_warning() {
 
 echo_error() {
   echo -e "\e[1;31mERR\e[0m ${*}" >&2
+}
+
+healthcheck_ping() {
+  if [[ -z "$HEALTHCHECK_URL" ]]
+  then
+    return 0
+  fi
+
+  local suffix="${1:-}"
+  local message="${2:-}"
+  local url="$HEALTHCHECK_URL"
+  if [[ -n "$suffix" ]]
+  then
+    url="${HEALTHCHECK_URL}/${suffix#/}"
+  fi
+
+  local curl_args=(-fsS -m 10 --retry 5)
+  if [[ -n "$message" ]]
+  then
+    curl_args+=(-X POST -H "Content-Type: text/plain" --data "$message")
+  fi
+
+  if ! curl "${curl_args[@]}" "$url" >/dev/null
+  then
+    echo_warning "Healthcheck ping failed: $url"
+    return 1
+  fi
 }
 
 bw_set_url() {
@@ -67,6 +95,7 @@ bw_export() {
   bw_set_url
   if ! BW_SESSION=$(bw_login)
   then
+    healthcheck_ping fail "Login failed (bw-backup)"
     exit 1
   fi
 
@@ -90,6 +119,7 @@ bw_export() {
   if ! bw export "$BW_PASSWORD" --format json --output "${BW_BACKUP_DIR}/bitwarden-export.json"
   then
     echo_error "Export failed."
+    healthcheck_ping fail "Export failed (bw-backup)"
     exit 1
   fi
 
@@ -98,6 +128,7 @@ bw_export() {
   if ! bw list items --pretty > "${BW_BACKUP_DIR}/bitwarden-list-items.json"
   then
     echo_error "List items failed."
+    healthcheck_ping fail "List items failed (bw-backup)"
     exit 1
   fi
 
@@ -212,8 +243,23 @@ then
 
   # Create the lock file
   echo "pid: $$ date: $(date -Iseconds)" > "$LOCKFILE"
-  trap cleanup EXIT ERR INT TERM
+  trap cleanup EXIT INT TERM ERR
 
-  bw_export "$@"
-  backup_rotate
+  healthcheck_ping start "Starting backup (bw-backup)"
+
+  if ! bw_export "$@"
+  then
+    RC=$?
+    healthcheck_ping fail "Backup failed (bw-backup, rc: $RC)"
+    exit "$RC"
+  fi
+
+  if ! backup_rotate
+  then
+    RC=$?
+    healthcheck_ping fail "Backup rotation failed (bw-backup, rc: $RC)"
+    exit "$RC"
+  fi
+
+  healthcheck_ping "" "Backup successful (bw-backup)"
 fi

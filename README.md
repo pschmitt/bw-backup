@@ -21,6 +21,9 @@ the given passphrase.
 
 `CRON` is optional. If set the script will run the backup script periodically.
 
+`HEALTHCHECK_URL` is optional. If set the script will ping Healthchecks.io (or
+compatible endpoints) when the backup starts, completes successfully, or fails.
+
 ## How do I decrypt my backup?
 
 ```shell
