@@ -116,7 +116,7 @@ bw_export() {
 
   # NOTE this does NOT contains attachment data
   echo_info "Exporting items (bw export)"
-  if ! bw export "$BW_PASSWORD" --format json --output "${BW_BACKUP_DIR}/bitwarden-export.json"
+  if ! bw export --format json --output "${BW_BACKUP_DIR}/bitwarden-export.json"
   then
     echo_error "Export failed."
     healthcheck_ping fail "Export failed (bw-backup)"
@@ -194,7 +194,7 @@ bw_export_attachments() {
       fi
 
       echo_info "Downloading attachment '$att_name'"
-      if ! bw get attachment "$att_id" --itemid "$item_id" --output "$att_dest" <<< "$BW_PASSWORD" || \
+      if ! bw get attachment "$att_id" --itemid "$item_id" --output "$att_dest" || \
          [[ ! -e "$att_dest" ]]
       then
         echo_warning "Download of '$att_name' (id: $att_id) failed."
