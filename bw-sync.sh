@@ -50,6 +50,8 @@ require_vars() {
   then
     exit 1
   fi
+
+  echo_info "Syncing from ${SRC_BW_URL} to ${DEST_BW_URL}"
 }
 
 bw_use_env() {
@@ -91,11 +93,11 @@ bw_login() {
   export BW_CLIENTID="$client_id"
   export BW_CLIENTSECRET="$client_secret"
 
-  bw logout >&2 || true
+  bw logout &>/dev/null || true
   bw_set_server "$url"
 
   echo_info "[$label] Logging in using API key."
-  if ! bw login --apikey --raw --nointeraction >&2
+  if ! bw login --apikey --raw --nointeraction >/dev/null
   then
     echo_error "[$label] Login failed. Verify values of *_BW_CLIENTID and *_BW_CLIENTSECRET."
     return 1
@@ -111,7 +113,7 @@ bw_login() {
 
   bw_use_env "$config_home" "$session"
   echo_info "[$label] Syncing vault."
-  bw --session "$session" sync --force >&2
+  { bw --session "$session" sync --force; echo; }>&2
 
   if [[ "$label" == "source" ]]
   then
@@ -125,7 +127,7 @@ bw_login() {
 bw_logout_env() {
   local config_home="$1"
   bw_use_env "$config_home" ""
-  bw logout >&2 || true
+  { bw logout; echo; } >&2 || true
 }
 
 prepare_workdir() {
@@ -142,6 +144,11 @@ export_attachments() {
   local session="$1"
   local items_json="$2"
   local dest_folder="$3"
+
+  local download_list
+  download_list=$(mktemp)
+  local total_attachments=0
+  local jobs="${ATTACH_DOWNLOAD_JOBS:-4}"
 
   mapfile -t items_with_attachments < <(
     jq -cer '.items[] | select(.attachments != null and (.attachments | length) > 0)' \
@@ -174,14 +181,39 @@ export_attachments() {
         continue
       fi
 
-      echo_info "Downloading attachment '$att_name'"
-      if ! bw --session "$session" get attachment "$att_id" --itemid "$item_id" --output "$att_dest" || \
-         [[ ! -e "$att_dest" ]]
-      then
-        echo_warning "Download of '$att_name' (id: $att_id) failed."
-      fi
+      printf "%s\t%s\t%s\0" "$item_id" "$att_id" "$att_name" >> "$download_list"
+      total_attachments=$((total_attachments + 1))
     done
   done
+
+  if [[ "$total_attachments" -eq 0 ]]
+  then
+    rm -f "$download_list"
+    return 0
+  fi
+
+  echo_info "Downloading ${total_attachments} attachments (parallel=${jobs})."
+  export BW_SESSION BW_NOINTERACTIVE BITWARDENCLI_APPDATA_DIR BW_CONFIG_HOME BW_CONFIG_DIR XDG_CONFIG_HOME HOME
+  ATT_DEST_ROOT="$dest_folder"
+  export ATT_DEST_ROOT
+
+  # shellcheck disable=SC2016
+  xargs -0 -P "$jobs" -I{} bash -c '
+    IFS=$'\''\t'\'' read -r item_id att_id att_name <<< "$1"
+    dest="${ATT_DEST_ROOT}/${item_id}/${att_name}"
+    printf "\e[1;34mNFO\e[0m Downloading attachment: %s\e[0m\n" "$att_name" >&2
+    if [[ -e "$dest" ]]
+    then
+      printf "\e[1;33mWRN\e[0m Attachment already exists: %s\e[0m\n" "$dest" >&2
+      exit 0
+    fi
+    if ! bw --session "$BW_SESSION" get attachment "$att_id" --itemid "$item_id" --output "$dest"
+    then
+      printf "\e[1;33mWRN\e[0m Download of %s failed\e[0m\n" "$att_name" >&2
+    fi
+  ' _ {} < "$download_list"
+
+  rm -f "$download_list"
 }
 
 restore_attachments() {

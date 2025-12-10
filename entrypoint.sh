@@ -8,8 +8,7 @@ COMMAND="${1:-backup}"
 if [[ "$COMMAND" == "sync" ]]
 then
   shift
-  /usr/local/bin/bw-sync "$@"
-  exit $?
+  exec /usr/local/bin/bw-sync "$@"
 elif [[ "$COMMAND" == "backup" ]]
 then
   shift
@@ -21,8 +20,7 @@ fi
 # oneshot mode
 if [[ -z "$CRON" ]]
 then
-  /usr/local/bin/bw-backup "$@"
-  exit $?
+  exec /usr/local/bin/bw-backup "$@"
 fi
 
 forward_signal() {
@@ -56,5 +54,6 @@ fi
 echo_info "Starting cron"
 cron -f -l 2 &
 CHILD=$!
+trap 'kill "$CHILD" 2>/dev/null' EXIT
 
 wait "$CHILD"
