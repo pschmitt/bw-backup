@@ -4,14 +4,14 @@ services:
     build: .
     container_name: bw-backup
     restart: unless-stopped
+    # DEBUG
     # entrypoint: bash
     # command:
     #   - -c
     #   - sleep 9000
     command: sync
     env_file:
-      # - secrets.env
-      - sync.env
+      - secrets.env
     volumes:
       # persistent data
       - ./data:/data
