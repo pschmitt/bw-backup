@@ -41,6 +41,10 @@ podman run -it --rm \
   ghcr.io/pschmitt/bw-backup:latest sync
 ```
 
+Optional:
+- `DOWNLOAD_PARALLELISM` controls parallel attachment downloads (default: 10).
+- `HEALTHCHECK_URL` works here too; sync will ping start/fail/success.
+
 ## How do I decrypt my backup?
 
 ```shell

@@ -16,7 +16,7 @@ download_attachments() {
   local session="$1"
   local items_json="$2"
   local dest_root="$3"
-  local jobs="${4:-${ATTACH_DOWNLOAD_JOBS:-10}}"
+  local jobs="${4:-${DOWNLOAD_PARALLELISM:-10}}"
 
   mkdir -p "$dest_root"
 
