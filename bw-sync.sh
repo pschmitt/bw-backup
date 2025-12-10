@@ -145,80 +145,7 @@ export_attachments() {
   local items_json="$2"
   local dest_folder="$3"
 
-  local download_list
-  download_list=$(mktemp)
-  local total_attachments=0
-  local jobs="${ATTACH_DOWNLOAD_JOBS:-4}"
-
-  mapfile -t items_with_attachments < <(
-    jq -cer '.items[] | select(.attachments != null and (.attachments | length) > 0)' \
-      "$items_json"
-  )
-
-  if [[ "${#items_with_attachments[@]}" -eq 0 ]]
-  then
-    return 0
-  fi
-
-  local item_data item_id item_att_dir
-  local att_data att_id att_name att_dest
-  for item_data in "${items_with_attachments[@]}"
-  do
-    item_id="$(jq -er '.id' <<< "$item_data")"
-    item_att_dir="$dest_folder/$item_id"
-    mkdir -p "$item_att_dir"
-
-    mapfile -t att_data < <(jq -cer '.attachments[]' <<< "$item_data")
-    local att_entry
-    for att_entry in "${att_data[@]}"
-    do
-      att_id="$(jq -er '.id' <<< "$att_entry")"
-      att_name="$(jq -er '.fileName' <<< "$att_entry")"
-      att_dest="${item_att_dir}/${att_name}"
-      if [[ -e "$att_dest" ]]
-      then
-        echo_warning "Attachment already exists: $att_dest. Skipping."
-        continue
-      fi
-
-      printf "%s\t%s\t%s\0" "$item_id" "$att_id" "$att_name" >> "$download_list"
-      total_attachments=$((total_attachments + 1))
-    done
-  done
-
-  if [[ "$total_attachments" -eq 0 ]]
-  then
-    rm -f "$download_list"
-    return 0
-  fi
-
-  echo_info "Downloading ${total_attachments} attachments (parallel=${jobs})."
-  export BW_SESSION BW_NOINTERACTIVE BITWARDENCLI_APPDATA_DIR BW_CONFIG_HOME BW_CONFIG_DIR XDG_CONFIG_HOME HOME
-  ATT_DEST_ROOT="$dest_folder"
-  export ATT_DEST_ROOT
-
-  export SCRIPT_DIR
-
-  # shellcheck disable=SC2016
-  xargs -0 -P "$jobs" -I{} bash -c '
-    set -euo pipefail
-    # shellcheck source=./lib.sh disable=SC1091
-    source "${SCRIPT_DIR}/lib.sh"
-    IFS=$'\''\t'\'' read -r item_id att_id att_name <<< "$1"
-    dest="${ATT_DEST_ROOT}/${item_id}/${att_name}"
-    echo_info "Downloading attachment: $att_name"
-    if [[ -e "$dest" ]]
-    then
-      echo_warning "Attachment already exists: $dest"
-      exit 0
-    fi
-    if ! bw --session "$BW_SESSION" get attachment "$att_id" --itemid "$item_id" --output "$dest"
-    then
-      echo_warning "Download of $att_name failed"
-    fi
-  ' _ {} < "$download_list"
-
-  rm -f "$download_list"
+  download_attachments "$session" "$items_json" "$dest_folder"
 }
 
 restore_attachments() {
@@ -339,11 +266,14 @@ main() {
     DEST_BW_PASSWORD \
     DEST_BW_EMAIL
 
+  healthcheck_ping start "Starting bw-sync"
+
   prepare_workdir
   trap cleanup EXIT INT TERM
 
   if ! bw_login "source" "$SRC_BW_URL" "$SRC_BW_CLIENTID" "$SRC_BW_CLIENTSECRET" "$SRC_BW_PASSWORD" "$SRC_BW_CONFIG_HOME"
   then
+    healthcheck_ping fail "bw-sync source login failed"
     return 1
   fi
 
@@ -352,6 +282,7 @@ main() {
 
   if ! bw_login "destination" "$DEST_BW_URL" "$DEST_BW_CLIENTID" "$DEST_BW_CLIENTSECRET" "$DEST_BW_PASSWORD" "$DEST_BW_CONFIG_HOME"
   then
+    healthcheck_ping fail "bw-sync destination login failed"
     return 1
   fi
 
@@ -360,6 +291,7 @@ main() {
   bw_logout_env "$DEST_BW_CONFIG_HOME"
 
   echo_info "Sync complete."
+  healthcheck_ping "" "bw-sync successful"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
