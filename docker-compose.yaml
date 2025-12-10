@@ -3,7 +3,7 @@ services:
     image: ghcr.io/pschmitt/bw-backup
     build: .
     container_name: bw-backup
-    restart: unless-stopped
+    restart: no
     # DEBUG
     # entrypoint: bash
     # command:

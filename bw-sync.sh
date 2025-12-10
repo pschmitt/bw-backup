@@ -197,19 +197,24 @@ export_attachments() {
   ATT_DEST_ROOT="$dest_folder"
   export ATT_DEST_ROOT
 
+  export SCRIPT_DIR
+
   # shellcheck disable=SC2016
   xargs -0 -P "$jobs" -I{} bash -c '
+    set -euo pipefail
+    # shellcheck source=./lib.sh disable=SC1091
+    source "${SCRIPT_DIR}/lib.sh"
     IFS=$'\''\t'\'' read -r item_id att_id att_name <<< "$1"
     dest="${ATT_DEST_ROOT}/${item_id}/${att_name}"
-    printf "\e[1;34mNFO\e[0m Downloading attachment: %s\e[0m\n" "$att_name" >&2
+    echo_info "Downloading attachment: $att_name"
     if [[ -e "$dest" ]]
     then
-      printf "\e[1;33mWRN\e[0m Attachment already exists: %s\e[0m\n" "$dest" >&2
+      echo_warning "Attachment already exists: $dest"
       exit 0
     fi
     if ! bw --session "$BW_SESSION" get attachment "$att_id" --itemid "$item_id" --output "$dest"
     then
-      printf "\e[1;33mWRN\e[0m Download of %s failed\e[0m\n" "$att_name" >&2
+      echo_warning "Download of $att_name failed"
     fi
   ' _ {} < "$download_list"
 
