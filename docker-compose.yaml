@@ -1,24 +1,26 @@
+x-bw-base: &bw-base
+  image: ghcr.io/pschmitt/bw-backup:latest
+  build: .
+  restart: no
+  env_file:
+    - secrets.env
+  volumes:
+    # persistent storage
+    - ./data:/data
+    # devel
+    - ./bw-backup.sh:/usr/local/bin/bw-backup:ro
+    - ./bw-sync.sh:/usr/local/bin/bw-sync:ro
+    - ./bw.py:/usr/local/bin/bw.py:ro
+    - ./entrypoint.sh:/entrypoint.sh:ro
+    - ./lib.sh:/usr/local/bin/lib.sh:ro
+
 services:
   bw-backup:
-    image: ghcr.io/pschmitt/bw-backup
-    build: .
+    <<: *bw-base
     container_name: bw-backup
-    restart: no
-    # DEBUG
-    # entrypoint: bash
-    # command:
-    #   - -c
-    #   - sleep 9000
-    command: sync
-    env_file:
-      - secrets.env
-    volumes:
-      # persistent data
-      - ./data:/data
+    command: backup
 
-      # development: bind mount scripts for live iteration
-      - ./bw-backup.sh:/usr/local/bin/bw-backup:ro
-      - ./bw-sync.sh:/usr/local/bin/bw-sync:ro
-      - ./bw.py:/usr/local/bin/bw.py:ro
-      - ./entrypoint.sh:/entrypoint.sh:ro
-      - ./lib.sh:/usr/local/bin/lib.sh:ro
+  bw-backup-sync:
+    <<: *bw-base
+    container_name: bw-backup-sync
+    command: sync
