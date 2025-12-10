@@ -24,6 +24,23 @@ the given passphrase.
 `HEALTHCHECK_URL` is optional. If set the script will ping Healthchecks.io (or
 compatible endpoints) when the backup starts, completes successfully, or fails.
 
+### Sync between two vaults
+
+Run the container with the `sync` command to copy all items (and attachments) from
+one vault to another:
+
+```shell
+podman run -it --rm \
+  -e BW_CLIENTID=src.xxxx \
+  -e BW_CLIENTSECRET=xxxx \
+  -e BW_PASSWORD=xxxx \
+  -e DEST_BW_CLIENTID=dest.xxxx \
+  -e DEST_BW_CLIENTSECRET=xxxx \
+  -e DEST_BW_PASSWORD=xxxx \
+  -e DEST_BW_EMAIL=you@example.com \
+  ghcr.io/pschmitt/bw-backup:latest sync
+```
+
 ## How do I decrypt my backup?
 
 ```shell

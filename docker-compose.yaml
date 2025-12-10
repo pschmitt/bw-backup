@@ -1,0 +1,20 @@
+services:
+  bitwarden-portal:
+    image: ghcr.io/pschmitt/bw-backup
+    build: .
+    container_name: bw-backup
+    restart: unless-stopped
+    command: sync
+    env_file:
+      # - secrets.env
+      - sync.env
+    volumes:
+      # persistent data
+      - ./data:/data
+
+      # development: bind mount scripts for live iteration
+      - ./bw-backup.sh:/usr/local/bin/bw-backup:ro
+      - ./bw-sync.sh:/usr/local/bin/bw-sync:ro
+      - ./bw.py:/usr/local/bin/bw.py:ro
+      - ./entrypoint.sh:/entrypoint.sh:ro
+      - ./lib.sh:/usr/local/bin/lib.sh:ro

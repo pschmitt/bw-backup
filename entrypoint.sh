@@ -1,5 +1,23 @@
 #!/usr/bin/env bash
 
+cd "$(cd "$(dirname "$0")" >/dev/null 2>&1; pwd -P)" || exit 9
+# shellcheck source=./lib.sh
+source lib.sh
+
+COMMAND="${1:-backup}"
+if [[ "$COMMAND" == "sync" ]]
+then
+  shift
+  /usr/local/bin/bw-sync "$@"
+  exit $?
+elif [[ "$COMMAND" == "backup" ]]
+then
+  shift
+else
+  echo_error "Unknown command: $COMMAND"
+  exit 2
+fi
+
 # oneshot mode
 if [[ -z "$CRON" ]]
 then
@@ -15,10 +33,6 @@ forward_signal() {
 # Trap termination signals and forward them to the child process
 trap 'forward_signal SIGTERM' SIGTERM
 trap 'forward_signal SIGINT' SIGINT
-
-# shellcheck source=./bw-backup.sh
-source /usr/local/bin/bw-backup
-
 # https://blog.thesparktree.com/cron-in-docker
 echo_info "Running in cron mode: CRON='$CRON'"
 

@@ -16,13 +16,18 @@ RUN apk add --no-cache ca-certificates curl jq unzip && \
 FROM ubuntu:latest
 # hadolint ignore=DL3008
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends bash ca-certificates cron curl gnupg2 jq && \
-    rm -rf /var/lib/apt/list/* /etc/cron.*/*
+    apt-get install -y --no-install-recommends \
+      bash ca-certificates cron curl gnupg2 jq python3 && \
+    rm -rf /var/lib/apt/lists/* /etc/cron.*/*
 
 # NOTE bw is dynamically linked!
 COPY --from=bw /bw /usr/local/bin/bw
 COPY bw-backup.sh /usr/local/bin/bw-backup
+COPY bw-sync.sh /usr/local/bin/bw-sync
+COPY bw.py /usr/local/bin/bw.py
 COPY entrypoint.sh /entrypoint.sh
+COPY lib.sh /usr/local/bin/lib.sh
+
 ENTRYPOINT ["/entrypoint.sh"]
 
 VOLUME ["/data"]
@@ -30,6 +35,15 @@ ENV BW_URL=https://bitwarden.com \
     BW_CLIENTID="user.xxxx" \
     BW_CLIENTSECRET="changeme" \
     BW_PASSWORD="changeme" \
+    SOURCE_BW_URL= \
+    SOURCE_BW_CLIENTID= \
+    SOURCE_BW_CLIENTSECRET= \
+    SOURCE_BW_PASSWORD= \
+    DEST_BW_URL= \
+    DEST_BW_CLIENTID= \
+    DEST_BW_CLIENTSECRET= \
+    DEST_BW_PASSWORD= \
+    DEST_BW_EMAIL= \
     ENCRYPTION_PASSPHRASE= \
     KEEP=10 \
     CRON=

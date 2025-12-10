@@ -5,21 +5,13 @@ then
   set -x
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib.sh
+source "${SCRIPT_DIR}/lib.sh"
+
 BW_CONFIG_HOME="${BW_CONFIG_HOME:-$HOME/.config/Bitwarden CLI}"
 LOCKFILE="${TMPDIR:-/tmp}/bw-backup.lock"
 HEALTHCHECK_URL="${HEALTHCHECK_URL%/}"
-
-echo_info() {
-  echo -e "\e[1;34mNFO\e[0m ${*}" >&2
-}
-
-echo_warning() {
-  echo -e "\e[1;33mWRN\e[0m ${*}" >&2
-}
-
-echo_error() {
-  echo -e "\e[1;31mERR\e[0m ${*}" >&2
-}
 
 healthcheck_ping() {
   if [[ -z "$HEALTHCHECK_URL" ]]
