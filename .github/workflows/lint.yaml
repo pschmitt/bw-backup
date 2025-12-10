@@ -4,30 +4,16 @@ on:
   push:
     branches:
       - main
+    paths:
+      - '**/*.sh'
+      - '**/*.py'
+  pull_request:
+    paths:
+      - '**/*.sh'
+      - '**/*.py'
 
 jobs:
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      sh: ${{ steps.filter.outputs.sh }}
-      py: ${{ steps.filter.outputs.py }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Detect changes
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            sh:
-              - '**/*.sh'
-            py:
-              - '**/*.py'
-
   shellcheck:
-    needs: changes
-    if: needs.changes.outputs.sh == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -40,8 +26,6 @@ jobs:
         run: shellcheck -x $(find . -name '*.sh')
 
   ruff:
-    needs: changes
-    if: needs.changes.outputs.py == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
