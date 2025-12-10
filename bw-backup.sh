@@ -32,7 +32,7 @@ bw_set_url() {
   fi
 
   echo_info "Setting Bitwarden server to $BW_URL"
-  bw config server "$BW_URL"
+  bw config server "$BW_URL" >/dev/null
 }
 
 bw_login() {

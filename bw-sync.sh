@@ -29,6 +29,8 @@ ATTACHMENTS_DIR="${WORKDIR}/attachments"
 SOURCE_ATTACHMENTS_DIR="${ATTACHMENTS_DIR}/source"
 DEST_ITEMS_AFTER_IMPORT="${WORKDIR}/dest-items-after-import.json"
 ID_MAPPING_FILE="${WORKDIR}/id-mapping.tsv"
+SOURCE_ATTACH_COUNT=0
+DEST_ATTACH_COUNT=0
 
 HELPER_PY="${SCRIPT_DIR}/bw.py"
 
@@ -77,7 +79,7 @@ bw_set_server() {
   fi
 
   echo_info "Setting Bitwarden server to $url"
-  bw config server "$url"
+  bw config server "$url" &>/dev/null
 }
 
 bw_login() {
@@ -208,6 +210,12 @@ export_source_data() {
 
   jq '{items: .}' "$SOURCE_ITEMS_LIST" > "$SOURCE_ITEMS_WRAPPED"
   export_attachments "$SOURCE_SESSION" "$SOURCE_ITEMS_WRAPPED" "$SOURCE_ATTACHMENTS_DIR"
+
+  if [[ -d "$SOURCE_ATTACHMENTS_DIR" ]]
+  then
+    SOURCE_ATTACH_COUNT=$(find "$SOURCE_ATTACHMENTS_DIR" -type f | wc -l | tr -d ' ')
+    echo_info "Downloaded ${SOURCE_ATTACH_COUNT} attachments from source."
+  fi
 }
 
 purge_destination_vault() {
@@ -217,22 +225,28 @@ purge_destination_vault() {
     --api-client-id "$DEST_BW_CLIENTID" \
     --api-client-secret "$DEST_BW_CLIENTSECRET" \
     --email "$DEST_BW_EMAIL" \
-    --master-password "$DEST_BW_PASSWORD"
+    --master-password "$DEST_BW_PASSWORD" \
+    >/tmp/bw-sync-purge.log 2>&1
   then
     echo_error "Failed to purge destination vault."
+    cat /tmp/bw-sync-purge.log >&2 || true
     exit 1
   fi
+  rm -f /tmp/bw-sync-purge.log
 }
 
 import_to_destination() {
   bw_use_env "$DEST_BW_CONFIG_HOME" "$DEST_SESSION"
 
   echo_info "[destination] Importing items from source export."
-  if ! bw --session "$DEST_SESSION" --raw import bitwardenjson "$SOURCE_EXPORT_FILE"
+  local import_log="${WORKDIR}/dest-import.log"
+  if ! bw --session "$DEST_SESSION" --raw import bitwardenjson "$SOURCE_EXPORT_FILE" >"$import_log" 2>&1
   then
     echo_error "Import into destination failed."
-    exit 1
+    cat "$import_log" >&2
+    return 1
   fi
+  echo_info "[destination] Import completed. Log: $import_log"
 
   if [[ ! -d "$SOURCE_ATTACHMENTS_DIR" ]]
   then
@@ -243,17 +257,23 @@ import_to_destination() {
   if ! bw --session "$DEST_SESSION" list items > "$DEST_ITEMS_AFTER_IMPORT"
   then
     echo_error "Failed to list destination items after import."
-    exit 1
+    return 1
   fi
 
   echo_info "[destination] Building attachment mapping."
   if ! python3 "$HELPER_PY" match "$SOURCE_EXPORT_FILE" "$DEST_ITEMS_AFTER_IMPORT" > "$ID_MAPPING_FILE"
   then
     echo_error "Failed to generate attachment mapping."
-    exit 1
+    return 1
   fi
 
   restore_attachments "$DEST_SESSION" "$SOURCE_ATTACHMENTS_DIR" "$ID_MAPPING_FILE"
+
+  if [[ -d "$SOURCE_ATTACHMENTS_DIR" ]]
+  then
+    DEST_ATTACH_COUNT=$(find "$SOURCE_ATTACHMENTS_DIR" -type f | wc -l | tr -d ' ')
+    echo_info "Uploaded ${DEST_ATTACH_COUNT} attachments to destination."
+  fi
 }
 
 main() {
@@ -291,6 +311,15 @@ main() {
   bw_logout_env "$DEST_BW_CONFIG_HOME"
 
   echo_info "Sync complete."
+  if [[ "${SOURCE_ATTACH_COUNT:-0}" -gt 0 || "${DEST_ATTACH_COUNT:-0}" -gt 0 ]]
+  then
+    if [[ "${SOURCE_ATTACH_COUNT:-0}" -eq "${DEST_ATTACH_COUNT:-0}" ]]
+    then
+      echo_info "Attachments: source=${SOURCE_ATTACH_COUNT:-0}, uploaded=${DEST_ATTACH_COUNT:-0}"
+    else
+      echo_warning "Attachments mismatch: source=${SOURCE_ATTACH_COUNT:-0}, uploaded=${DEST_ATTACH_COUNT:-0}"
+    fi
+  fi
   healthcheck_ping "" "bw-sync successful"
 }
 

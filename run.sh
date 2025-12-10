@@ -9,13 +9,30 @@ usage() {
 }
 
 main() {
-  local compose_service="bw-backup"
+  local compose_service="bw-backup" debug
+
+  while [[ -n "$*" ]]
+  do
+    case "$1" in
+      help|h|-h|--help)
+        usage
+        exit 0
+        ;;
+      -d|--debug)
+        debug=1
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
 
   case "$1" in
-    -h|--help|help)
-      usage
-      return 0
-      ;;
     backup|bak|--back*|--bak*)
       compose_service="bw-backup"
       shift
@@ -30,7 +47,13 @@ main() {
       ;;
   esac
 
-  docker compose up --build "$compose_service" "$@"
+  local -a extra_args=()
+  if [[ -n $debug ]]
+  then
+    extra_args+=(--env DEBUG=1)
+  fi
+
+  docker compose up --build "${extra_args[@]}" "$compose_service" "$@"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]

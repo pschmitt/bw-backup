@@ -82,9 +82,8 @@ download_attachments() {
       echo_warning "Attachment already exists: $dest"
       exit 0
     fi
-    if ! bw --session "$BW_SESSION" get attachment "$att_id" --itemid "$item_id" --output "$dest"
+    if ! bw --session "$BW_SESSION" get attachment "$att_id" --itemid "$item_id" --output "$dest" &>/dev/null
     then
-      echo >&2
       echo_warning "Download of $att_name failed (item id: $item_id)"
       exit 1
     fi
