@@ -1,9 +1,13 @@
 services:
-  bitwarden-portal:
+  bw-backup:
     image: ghcr.io/pschmitt/bw-backup
     build: .
     container_name: bw-backup
     restart: unless-stopped
+    # entrypoint: bash
+    # command:
+    #   - -c
+    #   - sleep 9000
     command: sync
     env_file:
       # - secrets.env

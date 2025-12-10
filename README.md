@@ -31,9 +31,9 @@ one vault to another:
 
 ```shell
 podman run -it --rm \
-  -e BW_CLIENTID=src.xxxx \
-  -e BW_CLIENTSECRET=xxxx \
-  -e BW_PASSWORD=xxxx \
+  -e SRC_BW_CLIENTID=src.xxxx \
+  -e SRC_BW_CLIENTSECRET=xxxx \
+  -e SRC_BW_PASSWORD=xxxx \
   -e DEST_BW_CLIENTID=dest.xxxx \
   -e DEST_BW_CLIENTSECRET=xxxx \
   -e DEST_BW_PASSWORD=xxxx \
