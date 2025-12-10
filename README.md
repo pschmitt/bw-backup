@@ -27,7 +27,7 @@ compatible endpoints) when the backup starts, completes successfully, or fails.
 ### Sync between two vaults
 
 Run the container with the `sync` command to copy all items (and attachments) from
-one vault to another:
+one Bitwarden/Vaultwarden instance to another:
 
 ```shell
 podman run -it --rm \
@@ -42,6 +42,8 @@ podman run -it --rm \
 ```
 
 Optional:
+- `DEST_BW_PURGE_VAULT` if set to `1` will delete all items in the destination vault
+before importing.
 - `DOWNLOAD_PARALLELISM` controls parallel attachment downloads (default: 10).
 - `HEALTHCHECK_URL` works here too; sync will ping start/fail/success.
 

@@ -230,7 +230,7 @@ purge_destination_vault() {
   then
     echo_error "Failed to purge destination vault."
     cat /tmp/bw-sync-purge.log >&2 || true
-    exit 1
+    return 1
   fi
   rm -f /tmp/bw-sync-purge.log
 }
@@ -306,7 +306,10 @@ main() {
     return 1
   fi
 
-  purge_destination_vault
+  if [[ -n "${DEST_BW_PURGE_VAULT:-}" ]]
+  then
+    purge_destination_vault
+  fi
   import_to_destination
   bw_logout_env "$DEST_BW_CONFIG_HOME"
 
