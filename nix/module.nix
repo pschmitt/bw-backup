@@ -12,15 +12,15 @@ in
   options.bw-backup = {
     package = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.bw-backup;
-      defaultText = lib.literalExpression "pkgs.bw-backup";
+      default = pkgs.callPackage ./bw-backup.nix { };
+      defaultText = lib.literalExpression "pkgs.callPackage ./bw-backup.nix { }";
       description = "Package providing the bw-backup script.";
     };
 
     syncPackage = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.bw-sync;
-      defaultText = lib.literalExpression "pkgs.bw-sync";
+      default = pkgs.callPackage ./bw-sync.nix { };
+      defaultText = lib.literalExpression "pkgs.callPackage ./bw-sync.nix { }";
       description = "Package providing the bw-sync script.";
     };
 
