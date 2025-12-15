@@ -32,6 +32,7 @@ ENTRYPOINT ["/entrypoint.sh"]
 
 VOLUME ["/data"]
 ENV BW_URL=https://bitwarden.com \
+    BW_BACKUP_DIR=/data \
     BW_CLIENTID="user.xxxx" \
     BW_CLIENTSECRET="changeme" \
     BW_PASSWORD="changeme" \

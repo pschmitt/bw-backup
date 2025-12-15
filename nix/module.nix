@@ -1,14 +1,26 @@
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   cfg = config.bw-backup;
 
-  envList = env:
-    lib.mapAttrsToList (n: v: "${n}=${toString v}") env;
+  envList = env: lib.mapAttrsToList (n: v: "${n}=${toString v}") env;
+
+  backupDir = cfg.backup.backupPath;
+  syncDir = cfg.sync.workDir;
+  homeDir = if cfg.backup.enable then backupDir else syncDir;
 
   ensureUser = cfg.backup.enable || cfg.sync.enable;
 in
 {
+  imports = [
+    (lib.mkRenamedOptionModule [ "bw-backup" "backupPath" ] [ "bw-backup" "backup" "backupPath" ])
+  ];
+
   options.bw-backup = {
     package = lib.mkOption {
       type = lib.types.package;
@@ -36,17 +48,17 @@ in
       description = "System group used to run backup and sync jobs.";
     };
 
-    backupPath = lib.mkOption {
-      type = lib.types.str;
-      default = "/var/lib/bw-backup/backups";
-      description = "Directory where backups are written.";
-    };
-
     backup = {
       enable = lib.mkOption {
         type = lib.types.bool;
         default = false;
         description = "Enable periodic Bitwarden backups.";
+      };
+
+      backupPath = lib.mkOption {
+        type = lib.types.str;
+        default = "/var/lib/bw-backup/backups";
+        description = "Directory where backups are written.";
       };
 
       schedule = lib.mkOption {
@@ -135,14 +147,14 @@ in
     users.users.${cfg.user} = {
       isSystemUser = true;
       inherit (cfg) group;
-      home = cfg.backupPath;
+      home = homeDir;
       createHome = true;
     };
 
     systemd = {
       tmpfiles.rules =
-        (lib.optional cfg.backup.enable "d ${cfg.backupPath} 0750 ${cfg.user} ${cfg.group} -")
-        ++ (lib.optional cfg.sync.enable "d ${cfg.sync.workDir} 0750 ${cfg.user} ${cfg.group} -");
+        (lib.optional cfg.backup.enable "d ${backupDir} 0750 ${cfg.user} ${cfg.group} -")
+        ++ (lib.optional cfg.sync.enable "d ${syncDir} 0750 ${cfg.user} ${cfg.group} -");
 
       services.bw-backup = lib.mkIf cfg.backup.enable {
         description = "Bitwarden backup";
@@ -150,11 +162,10 @@ in
           Type = "oneshot";
           User = cfg.user;
           Group = cfg.group;
-          WorkingDirectory = cfg.backupPath;
-          ReadWritePaths = [ cfg.backupPath ];
-          BindPaths = [ "${cfg.backupPath}:/data" ];
+          WorkingDirectory = backupDir;
+          ReadWritePaths = [ backupDir ];
           EnvironmentFile = cfg.backup.environmentFiles;
-          Environment = envList cfg.backup.environment;
+          Environment = envList ({ BW_BACKUP_DIR = backupDir; } // cfg.backup.environment);
           ExecStart = "${cfg.package}/bin/bw-backup";
         };
       };
@@ -174,10 +185,10 @@ in
           Type = "oneshot";
           User = cfg.user;
           Group = cfg.group;
-          WorkingDirectory = cfg.sync.workDir;
-          ReadWritePaths = [ cfg.sync.workDir ];
+          WorkingDirectory = syncDir;
+          ReadWritePaths = [ syncDir ];
           EnvironmentFile = cfg.sync.environmentFiles;
-          Environment = envList (cfg.sync.environment // { WORKDIR = cfg.sync.workDir; });
+          Environment = envList (cfg.sync.environment // { WORKDIR = syncDir; });
           ExecStart = "${cfg.syncPackage}/bin/bw-sync";
         };
       };
@@ -192,38 +203,40 @@ in
       };
     };
 
-    services.monit.config = lib.mkIf cfg.monit.enable (let
-      lastBackupCheck = pkgs.writeShellScript "bw-last-backup" ''
-        set -euo pipefail
-        THRESHOLD=''${1:-${toString cfg.monit.thresholdSeconds}}
-        NOW=$(${pkgs.coreutils}/bin/date '+%s')
-        LAST_FILE="${cfg.backupPath}/LAST_BACKUP"
+    services.monit.config = lib.mkIf cfg.monit.enable (
+      let
+        lastBackupCheck = pkgs.writeShellScript "bw-last-backup" ''
+          set -euo pipefail
+          THRESHOLD=''${1:-${toString cfg.monit.thresholdSeconds}}
+          NOW=$(${pkgs.coreutils}/bin/date '+%s')
+          LAST_FILE="${backupDir}/LAST_BACKUP"
 
-        if [[ ! -s "$LAST_FILE" ]]
-        then
-          echo "🚨 No backup timestamp found"
-          exit 1
-        fi
+          if [[ ! -s "$LAST_FILE" ]]
+          then
+            echo "🚨 No backup timestamp found"
+            exit 1
+          fi
 
-        LAST_BACKUP=$(${pkgs.coreutils}/bin/cat "$LAST_FILE")
+          LAST_BACKUP=$(${pkgs.coreutils}/bin/cat "$LAST_FILE")
 
-        if [[ $((NOW - LAST_BACKUP)) -gt $THRESHOLD ]]
-        then
-          echo "🚨 Last backup was more than $THRESHOLD seconds ago"
-          echo "📅 $(${pkgs.coreutils}/bin/date -d "@$LAST_BACKUP")"
-          exit 1
-        else
-          echo "✅ Last backup is fresh enough"
-          echo "📅 $(${pkgs.coreutils}/bin/date -d "@$LAST_BACKUP")"
-          exit 0
-        fi
-      '';
-    in
+          if [[ $((NOW - LAST_BACKUP)) -gt $THRESHOLD ]]
+          then
+            echo "🚨 Last backup was more than $THRESHOLD seconds ago"
+            echo "📅 $(${pkgs.coreutils}/bin/date -d "@$LAST_BACKUP")"
+            exit 1
+          else
+            echo "✅ Last backup is fresh enough"
+            echo "📅 $(${pkgs.coreutils}/bin/date -d "@$LAST_BACKUP")"
+            exit 0
+          fi
+        '';
+      in
       lib.mkAfter ''
         check program "bw-backup" with path "${lastBackupCheck}"
           group backup
           every 2 cycles
           if status > 0 then alert
-      '');
+      ''
+    );
   };
 }

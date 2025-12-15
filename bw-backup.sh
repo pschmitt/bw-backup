@@ -12,6 +12,17 @@ source "${SCRIPT_DIR}/lib.sh"
 BW_CONFIG_HOME="${BW_CONFIG_HOME:-$HOME/.config/Bitwarden CLI}"
 LOCKFILE="${TMPDIR:-/tmp}/bw-backup.lock"
 HEALTHCHECK_URL="${HEALTHCHECK_URL%/}"
+BW_BACKUP_DIR="${BW_BACKUP_DIR:-/data}"
+BW_BACKUP_DIR="${BW_BACKUP_DIR%/}"
+BW_CURRENT_BACKUP_DIR=""
+
+validate_backup_root() {
+  if [[ -z "$BW_BACKUP_DIR" || "$BW_BACKUP_DIR" == "/" ]]
+  then
+    echo_error "Invalid BW_BACKUP_DIR: '$BW_BACKUP_DIR'"
+    exit 2
+  fi
+}
 
 bw_set_url() {
   if [[ -z "$BW_URL" ]]
@@ -57,6 +68,7 @@ bw_login() {
 }
 
 bw_export() {
+  validate_backup_root
   bw_set_url
   if ! BW_SESSION=$(bw_login)
   then
@@ -71,17 +83,17 @@ bw_export() {
   echo_info "Force syncing vault"
   bw sync --force
 
-  mkdir -p /data
+  mkdir -p "$BW_BACKUP_DIR"
   if [[ -e "$CLEAR_DATA" ]]
   then
-    rm -rf /data/*
+    rm -rf "${BW_BACKUP_DIR:?}/"*
   fi
 
-  BW_BACKUP_DIR="/data/bw-export-$(date -Iseconds)"
+  BW_CURRENT_BACKUP_DIR="${BW_BACKUP_DIR}/bw-export-$(date -Iseconds)"
 
   # NOTE this does NOT contains attachment data
   echo_info "Exporting items (bw export)"
-  if ! bw export --format json --output "${BW_BACKUP_DIR}/bitwarden-export.json"
+  if ! bw export --format json --output "${BW_CURRENT_BACKUP_DIR}/bitwarden-export.json"
   then
     echo_error "Export failed."
     healthcheck_ping fail "Export failed (bw-backup)"
@@ -90,7 +102,7 @@ bw_export() {
 
   # NOTE this does contain attachment data
   echo_info "Exporting all item (bw list items)"
-  if ! bw list items --pretty > "${BW_BACKUP_DIR}/bitwarden-list-items.json"
+  if ! bw list items --pretty > "${BW_CURRENT_BACKUP_DIR}/bitwarden-list-items.json"
   then
     echo_error "List items failed."
     healthcheck_ping fail "List items failed (bw-backup)"
@@ -102,9 +114,9 @@ bw_export() {
     echo_error "Export of attachments failed."
   fi
 
-  local archive="$BW_BACKUP_DIR.tar.gz"
-  echo_info "Creating archive: $BW_BACKUP_DIR/* -> $archive"
-  (cd "$BW_BACKUP_DIR" || exit 3; tar cvzf "$archive" --transform 's|^./||' -- *)
+  local archive="$BW_CURRENT_BACKUP_DIR.tar.gz"
+  echo_info "Creating archive: $BW_CURRENT_BACKUP_DIR/* -> $archive"
+  (cd "$BW_CURRENT_BACKUP_DIR" || exit 3; tar cvzf "$archive" --transform 's|^./||' -- *)
 
   local latest="$archive"
   if [[ -z "$ENCRYPTION_PASSPHRASE" ]]
@@ -123,14 +135,14 @@ bw_export() {
     fi
   fi
 
-  ln -sfv "$(basename "$latest")" "/data/bw-export-latest"
-  date '+%s' > "/data/LAST_BACKUP"
+  ln -sfv "$(basename "$latest")" "${BW_BACKUP_DIR}/bw-export-latest"
+  date '+%s' > "${BW_BACKUP_DIR}/LAST_BACKUP"
 }
 
 bw_export_attachments() {
-  local wrapped_items="${BW_BACKUP_DIR}/bitwarden-items-wrapped.json"
-  jq '{items: .}' "${BW_BACKUP_DIR}/bitwarden-list-items.json" > "$wrapped_items"
-  download_attachments "$BW_SESSION" "$wrapped_items" "${BW_BACKUP_DIR}/attachments"
+  local wrapped_items="${BW_CURRENT_BACKUP_DIR}/bitwarden-items-wrapped.json"
+  jq '{items: .}' "${BW_CURRENT_BACKUP_DIR}/bitwarden-list-items.json" > "$wrapped_items"
+  download_attachments "$BW_SESSION" "$wrapped_items" "${BW_CURRENT_BACKUP_DIR}/attachments"
 }
 
 backup_rotate() {
@@ -144,7 +156,7 @@ backup_rotate() {
 
   # remove files
   local file
-  find /data -type f -name 'bw-export-*' | sort -nr | \
+  find "$BW_BACKUP_DIR" -type f -name 'bw-export-*' | sort -nr | \
     tail -n +$((KEEP + 1)) | while read -r file
   do
     rm -vf "$file"
@@ -153,7 +165,7 @@ backup_rotate() {
 
 cleanup() {
   bw logout
-  rm -rf "$BW_BACKUP_DIR" "$LOCKFILE" "$BW_CONFIG_HOME"
+  rm -rf "$BW_CURRENT_BACKUP_DIR" "$LOCKFILE" "$BW_CONFIG_HOME"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]

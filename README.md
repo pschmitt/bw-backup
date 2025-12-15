@@ -24,6 +24,9 @@ the given passphrase.
 `HEALTHCHECK_URL` is optional. If set the script will ping Healthchecks.io (or
 compatible endpoints) when the backup starts, completes successfully, or fails.
 
+`BW_BACKUP_DIR` is optional. If set the script will write backups to that directory
+(default: `/data`). When running in a container, mount your volume accordingly.
+
 ### Sync between two vaults
 
 Run the container with the `sync` command to copy all items (and attachments) from
