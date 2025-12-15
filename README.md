@@ -9,7 +9,7 @@ podman run -it --rm \
   -e BW_CLIENTSECRET=xxxx \
   -e BW_PASSWORD=xxxx \
   -e ENCRYPTION_PASSPHRASE=mySecret1234 \
-  -e KEEP=10 \
+  -e BW_BACKUP_RETENTION=30 \
   -e CRON="0 23 * * *" \
   ghcr.io/pschmitt/bw-backup:latest
 ```
@@ -17,7 +17,9 @@ podman run -it --rm \
 `ENCRIPTION_PASSPHRASE` is optional. If set the backups will be encrypted with
 the given passphrase.
 
-`KEEP` is optional. If set the script will keep the last `KEEP` backups.
+`BW_BACKUP_RETENTION` is optional. Controls how many backups are kept (default: 30).
+Set it to `0` to disable rotation.
+`KEEP` is deprecated; use `BW_BACKUP_RETENTION`.
 
 `CRON` is optional. If set the script will run the backup script periodically.
 

@@ -12,7 +12,6 @@ let
 
   backupDir = cfg.backup.backupPath;
   syncDir = cfg.sync.workDir;
-  homeDir = if cfg.backup.enable then backupDir else syncDir;
 
   ensureUser = cfg.backup.enable || cfg.sync.enable;
 in
@@ -61,6 +60,12 @@ in
         description = "Directory where backups are written.";
       };
 
+      retention = lib.mkOption {
+        type = lib.types.int;
+        default = 30;
+        description = "Number of backups to keep (0 disables rotation).";
+      };
+
       schedule = lib.mkOption {
         type = lib.types.str;
         default = "daily";
@@ -79,7 +84,7 @@ in
         default = { };
         description = ''
           Extra environment variables passed to bw-backup.
-          Use this to provide BW_* credentials, ENCRYPTION_PASSPHRASE, KEEP, HEALTHCHECK_URL, etc.
+          Use this to provide BW_* credentials, ENCRYPTION_PASSPHRASE, BW_BACKUP_RETENTION, HEALTHCHECK_URL, etc.
         '';
       };
     };
@@ -147,7 +152,7 @@ in
     users.users.${cfg.user} = {
       isSystemUser = true;
       inherit (cfg) group;
-      home = homeDir;
+      home = "/var/lib/${cfg.user}";
       createHome = true;
     };
 
@@ -165,7 +170,13 @@ in
           WorkingDirectory = backupDir;
           ReadWritePaths = [ backupDir ];
           EnvironmentFile = cfg.backup.environmentFiles;
-          Environment = envList ({ BW_BACKUP_DIR = backupDir; } // cfg.backup.environment);
+          Environment = envList (
+            {
+              BW_BACKUP_DIR = backupDir;
+              BW_BACKUP_RETENTION = toString cfg.backup.retention;
+            }
+            // cfg.backup.environment
+          );
           ExecStart = "${cfg.package}/bin/bw-backup";
         };
       };

@@ -47,5 +47,5 @@ ENV BW_URL=https://bitwarden.com \
     DEST_BW_EMAIL= \
     DEST_BW_PURGE_VAULT= \
     ENCRYPTION_PASSPHRASE= \
-    KEEP=10 \
+    BW_BACKUP_RETENTION=30 \
     CRON=

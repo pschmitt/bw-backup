@@ -14,13 +14,27 @@ LOCKFILE="${TMPDIR:-/tmp}/bw-backup.lock"
 HEALTHCHECK_URL="${HEALTHCHECK_URL%/}"
 BW_BACKUP_DIR="${BW_BACKUP_DIR:-/data}"
 BW_BACKUP_DIR="${BW_BACKUP_DIR%/}"
+BW_BACKUP_RETENTION_EXPLICIT=0
+if [[ -n "${BW_BACKUP_RETENTION+x}" ]]
+then
+  BW_BACKUP_RETENTION_EXPLICIT=1
+fi
+BW_BACKUP_RETENTION="${BW_BACKUP_RETENTION:-${KEEP:-30}}"
 BW_CURRENT_BACKUP_DIR=""
 
 validate_backup_root() {
   if [[ -z "$BW_BACKUP_DIR" || "$BW_BACKUP_DIR" == "/" ]]
   then
     echo_error "Invalid BW_BACKUP_DIR: '$BW_BACKUP_DIR'"
-    exit 2
+    return 1
+  fi
+}
+
+validate_retention() {
+  if ! [[ "$BW_BACKUP_RETENTION" =~ ^[0-9]+$ ]]
+  then
+    echo_error "Invalid BW_BACKUP_RETENTION: '$BW_BACKUP_RETENTION' (expected integer)"
+    return 1
   fi
 }
 
@@ -68,7 +82,7 @@ bw_login() {
 }
 
 bw_export() {
-  validate_backup_root
+  validate_backup_root || return 1
   bw_set_url
   if ! BW_SESSION=$(bw_login)
   then
@@ -146,18 +160,25 @@ bw_export_attachments() {
 }
 
 backup_rotate() {
-  if [[ -z "$KEEP" ]]
+  if [[ -z "$BW_BACKUP_RETENTION" || "$BW_BACKUP_RETENTION" == "0" ]]
   then
-    echo_info "KEEP is not set. Skip rotation."
+    echo_info "BW_BACKUP_RETENTION is unset or 0. Skip rotation."
     return 0
   fi
 
-  echo_info "Pruning old backups (keep: $KEEP)"
+  validate_retention
+
+  if [[ -n "${KEEP:-}" && "$BW_BACKUP_RETENTION_EXPLICIT" == "0" ]]
+  then
+    echo_warning "KEEP is deprecated; use BW_BACKUP_RETENTION instead."
+  fi
+
+  echo_info "Pruning old backups (keep: $BW_BACKUP_RETENTION)"
 
   # remove files
   local file
   find "$BW_BACKUP_DIR" -type f -name 'bw-export-*' | sort -nr | \
-    tail -n +$((KEEP + 1)) | while read -r file
+    tail -n +$((BW_BACKUP_RETENTION + 1)) | while read -r file
   do
     rm -vf "$file"
   done
