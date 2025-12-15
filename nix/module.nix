@@ -16,10 +16,6 @@ let
   ensureUser = cfg.backup.enable || cfg.sync.enable;
 in
 {
-  imports = [
-    (lib.mkRenamedOptionModule [ "bw-backup" "backupPath" ] [ "bw-backup" "backup" "backupPath" ])
-  ];
-
   options.bw-backup = {
     package = lib.mkOption {
       type = lib.types.package;
