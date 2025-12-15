@@ -107,6 +107,12 @@ in
         description = "Enable syncing between two vaults.";
       };
 
+      purgeDestination = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Purge destination vault before importing.";
+      };
+
       user = lib.mkOption {
         type = lib.types.str;
         default = "bw-sync";
@@ -145,6 +151,20 @@ in
           Provide SRC_BW_* and DEST_BW_* values here as needed.
         '';
       };
+
+      monit = {
+        enable = lib.mkOption {
+          type = lib.types.bool;
+          default = false;
+          description = "Enable Monit check for sync freshness.";
+        };
+
+        thresholdSeconds = lib.mkOption {
+          type = lib.types.int;
+          default = 86400;
+          description = "Maximum allowed age of the last sync timestamp before Monit alerts.";
+        };
+      };
     };
   };
 
@@ -153,6 +173,10 @@ in
       {
         assertion = !(backupCfg.monit.enable && !backupCfg.enable);
         message = "services.bw-backup.monit.enable requires services.bw-backup.enable";
+      }
+      {
+        assertion = !(syncCfg.monit.enable && !syncCfg.enable);
+        message = "services.bw-sync.monit.enable requires services.bw-sync.enable";
       }
     ];
 
@@ -223,7 +247,13 @@ in
           WorkingDirectory = syncDir;
           ReadWritePaths = [ syncDir ];
           EnvironmentFile = syncCfg.environmentFiles;
-          Environment = envList (syncCfg.environment // { WORKDIR = syncDir; });
+          Environment = envList (
+            syncCfg.environment
+            // {
+              WORKDIR = syncDir;
+            }
+            // (lib.optionalAttrs syncCfg.purgeDestination { DEST_BW_PURGE_VAULT = "1"; })
+          );
           ExecStart = "${syncCfg.package}/bin/bw-sync";
         };
       };
@@ -238,40 +268,77 @@ in
       };
     };
 
-    services.monit.config = lib.mkIf (backupCfg.enable && backupCfg.monit.enable) (
-      let
-        lastBackupCheck = pkgs.writeShellScript "bw-last-backup" ''
-          set -euo pipefail
-          THRESHOLD=''${1:-${toString backupCfg.monit.thresholdSeconds}}
-          NOW=$(${pkgs.coreutils}/bin/date '+%s')
-          LAST_FILE="${backupDir}/LAST_BACKUP"
+    services.monit.config = lib.mkMerge [
+      (lib.mkIf (backupCfg.enable && backupCfg.monit.enable) (
+        let
+          lastBackupCheck = pkgs.writeShellScript "bw-last-backup" ''
+            set -euo pipefail
+            THRESHOLD=''${1:-${toString backupCfg.monit.thresholdSeconds}}
+            NOW=$(${pkgs.coreutils}/bin/date '+%s')
+            LAST_FILE="${backupDir}/LAST_BACKUP"
 
-          if [[ ! -s "$LAST_FILE" ]]
-          then
-            echo "🚨 No backup timestamp found"
-            exit 1
-          fi
+            if [[ ! -s "$LAST_FILE" ]]
+            then
+              echo "🚨 No backup timestamp found"
+              exit 1
+            fi
 
-          LAST_BACKUP=$(${pkgs.coreutils}/bin/cat "$LAST_FILE")
+            LAST_BACKUP=$(${pkgs.coreutils}/bin/cat "$LAST_FILE")
 
-          if [[ $((NOW - LAST_BACKUP)) -gt $THRESHOLD ]]
-          then
-            echo "🚨 Last backup was more than $THRESHOLD seconds ago"
-            echo "📅 $(${pkgs.coreutils}/bin/date -d "@$LAST_BACKUP")"
-            exit 1
-          else
-            echo "✅ Last backup is fresh enough"
-            echo "📅 $(${pkgs.coreutils}/bin/date -d "@$LAST_BACKUP")"
-            exit 0
-          fi
-        '';
-      in
-      lib.mkAfter ''
-        check program "bw-backup" with path "${lastBackupCheck}"
-          group backup
-          every 2 cycles
-          if status > 0 then alert
-      ''
-    );
+            if [[ $((NOW - LAST_BACKUP)) -gt $THRESHOLD ]]
+            then
+              echo "🚨 Last backup was more than $THRESHOLD seconds ago"
+              echo "📅 $(${pkgs.coreutils}/bin/date -d "@$LAST_BACKUP")"
+              exit 1
+            else
+              echo "✅ Last backup is fresh enough"
+              echo "📅 $(${pkgs.coreutils}/bin/date -d "@$LAST_BACKUP")"
+              exit 0
+            fi
+          '';
+        in
+        lib.mkAfter ''
+          check program "bw-backup" with path "${lastBackupCheck}"
+            group backup
+            every 2 cycles
+            if status > 0 then alert
+        ''
+      ))
+      (lib.mkIf (syncCfg.enable && syncCfg.monit.enable) (
+        let
+          lastSyncCheck = pkgs.writeShellScript "bw-last-sync" ''
+            set -euo pipefail
+            THRESHOLD=''${1:-${toString syncCfg.monit.thresholdSeconds}}
+            NOW=$(${pkgs.coreutils}/bin/date '+%s')
+            LAST_FILE="${syncDir}/LAST_SYNC"
+
+            if [[ ! -s "$LAST_FILE" ]]
+            then
+              echo "🚨 No sync timestamp found"
+              exit 1
+            fi
+
+            LAST_SYNC=$(${pkgs.coreutils}/bin/cat "$LAST_FILE")
+
+            if [[ $((NOW - LAST_SYNC)) -gt $THRESHOLD ]]
+            then
+              echo "🚨 Last sync was more than $THRESHOLD seconds ago"
+              echo "📅 $(${pkgs.coreutils}/bin/date -d "@$LAST_SYNC")"
+              exit 1
+            else
+              echo "✅ Last sync is fresh enough"
+              echo "📅 $(${pkgs.coreutils}/bin/date -d "@$LAST_SYNC")"
+              exit 0
+            fi
+          '';
+        in
+        lib.mkAfter ''
+          check program "bw-sync" with path "${lastSyncCheck}"
+            group sync
+            every 2 cycles
+            if status > 0 then alert
+        ''
+      ))
+    ];
   };
 }

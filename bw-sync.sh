@@ -37,6 +37,24 @@ HELPER_PY="${SCRIPT_DIR}/bw.py"
 SOURCE_SESSION=""
 DEST_SESSION=""
 
+is_temp_workdir() {
+  case "$WORKDIR" in
+    /tmp/*)
+      return 0
+      ;;
+    ${TMPDIR:-/tmp}/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+write_last_sync() {
+  date '+%s' > "${WORKDIR}/LAST_SYNC"
+}
+
 require_vars() {
   local missing=0
   for var in "$@"
@@ -139,7 +157,19 @@ prepare_workdir() {
 cleanup() {
   bw_logout_env "$SRC_BW_CONFIG_HOME"
   bw_logout_env "$DEST_BW_CONFIG_HOME"
-  rm -rf "$WORKDIR"
+  rm -rf "$SRC_BW_CONFIG_HOME" "$DEST_BW_CONFIG_HOME"
+  rm -rf "$ATTACHMENTS_DIR"
+  rm -f \
+    "$SOURCE_EXPORT_FILE" \
+    "$SOURCE_ITEMS_LIST" \
+    "$SOURCE_ITEMS_WRAPPED" \
+    "$DEST_ITEMS_AFTER_IMPORT" \
+    "$ID_MAPPING_FILE"
+
+  if is_temp_workdir
+  then
+    rm -rf "$WORKDIR"
+  fi
 }
 
 export_attachments() {
@@ -323,6 +353,8 @@ main() {
       echo_warning "Attachments mismatch: source=${SOURCE_ATTACH_COUNT:-0}, uploaded=${DEST_ATTACH_COUNT:-0}"
     fi
   fi
+
+  write_last_sync
   healthcheck_ping "" "bw-sync successful"
 }
 
