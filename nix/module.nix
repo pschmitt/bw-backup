@@ -133,7 +133,7 @@ in
 
       workDir = lib.mkOption {
         type = lib.types.str;
-        default = "/var/lib/bw-sync";
+        default = "/var/lib/bw-sync/data";
         description = "Persistent work directory for sync scratch data and attachments.";
       };
 
