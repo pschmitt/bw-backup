@@ -6,44 +6,26 @@
 }:
 
 let
-  cfg = config.bw-backup;
+  backupCfg = config.services.bw-backup;
+  syncCfg = config.services.bw-sync;
 
   envList = env: lib.mapAttrsToList (n: v: "${n}=${toString v}") env;
 
-  backupDir = cfg.backup.backupPath;
-  syncDir = cfg.sync.workDir;
+  backupDir = backupCfg.backupPath;
+  syncDir = syncCfg.workDir;
 
-  ensureUser = cfg.backup.enable || cfg.sync.enable;
+  ensureUser = backupCfg.enable || syncCfg.enable;
 in
 {
-  options.bw-backup = {
-    package = lib.mkOption {
-      type = lib.types.package;
-      default = pkgs.callPackage ./bw-backup.nix { };
-      defaultText = lib.literalExpression "pkgs.callPackage ./bw-backup.nix { }";
-      description = "Package providing the bw-backup script.";
-    };
+  options = {
+    services.bw-backup = {
+      package = lib.mkOption {
+        type = lib.types.package;
+        default = pkgs.callPackage ./bw-backup.nix { };
+        defaultText = lib.literalExpression "pkgs.callPackage ./bw-backup.nix { }";
+        description = "Package providing the bw-backup script.";
+      };
 
-    syncPackage = lib.mkOption {
-      type = lib.types.package;
-      default = pkgs.callPackage ./bw-sync.nix { };
-      defaultText = lib.literalExpression "pkgs.callPackage ./bw-sync.nix { }";
-      description = "Package providing the bw-sync script.";
-    };
-
-    user = lib.mkOption {
-      type = lib.types.str;
-      default = "bw-backup";
-      description = "System user used to run backup and sync jobs.";
-    };
-
-    group = lib.mkOption {
-      type = lib.types.str;
-      default = "bw-backup";
-      description = "System group used to run backup and sync jobs.";
-    };
-
-    backup = {
       enable = lib.mkOption {
         type = lib.types.bool;
         default = false;
@@ -52,13 +34,13 @@ in
 
       user = lib.mkOption {
         type = lib.types.str;
-        default = cfg.user;
+        default = "bw-backup";
         description = "System user used to run backup jobs.";
       };
 
       group = lib.mkOption {
         type = lib.types.str;
-        default = cfg.group;
+        default = "bw-backup";
         description = "System group used to run backup jobs.";
       };
 
@@ -72,20 +54,6 @@ in
         type = lib.types.int;
         default = 30;
         description = "Number of backups to keep (0 disables rotation).";
-      };
-
-      monit = {
-        enable = lib.mkOption {
-          type = lib.types.bool;
-          default = true;
-          description = "Enable Monit check for backup freshness.";
-        };
-
-        thresholdSeconds = lib.mkOption {
-          type = lib.types.int;
-          default = 86400;
-          description = "Maximum allowed age of the last backup timestamp before Monit alerts.";
-        };
       };
 
       schedule = lib.mkOption {
@@ -109,9 +77,30 @@ in
           Use this to provide BW_* credentials, ENCRYPTION_PASSPHRASE, BW_BACKUP_RETENTION, HEALTHCHECK_URL, etc.
         '';
       };
+
+      monit = {
+        enable = lib.mkOption {
+          type = lib.types.bool;
+          default = true;
+          description = "Enable Monit check for backup freshness.";
+        };
+
+        thresholdSeconds = lib.mkOption {
+          type = lib.types.int;
+          default = 86400;
+          description = "Maximum allowed age of the last backup timestamp before Monit alerts.";
+        };
+      };
     };
 
-    sync = {
+    services.bw-sync = {
+      package = lib.mkOption {
+        type = lib.types.package;
+        default = pkgs.callPackage ./bw-sync.nix { };
+        defaultText = lib.literalExpression "pkgs.callPackage ./bw-sync.nix { }";
+        description = "Package providing the bw-sync script.";
+      };
+
       enable = lib.mkOption {
         type = lib.types.bool;
         default = false;
@@ -144,7 +133,7 @@ in
 
       workDir = lib.mkOption {
         type = lib.types.str;
-        default = "/var/lib/bw-backup/sync";
+        default = "/var/lib/bw-sync";
         description = "Persistent work directory for sync scratch data and attachments.";
       };
 
@@ -157,35 +146,34 @@ in
         '';
       };
     };
-
   };
 
   config = lib.mkIf ensureUser {
     assertions = [
       {
-        assertion = !(cfg.backup.monit.enable && !cfg.backup.enable);
-        message = "bw-backup.backup.monit.enable requires bw-backup.backup.enable";
+        assertion = !(backupCfg.monit.enable && !backupCfg.enable);
+        message = "services.bw-backup.monit.enable requires services.bw-backup.enable";
       }
     ];
 
     users.groups = lib.mkMerge [
-      (lib.mkIf cfg.backup.enable { ${cfg.backup.group} = { }; })
-      (lib.mkIf cfg.sync.enable { ${cfg.sync.group} = { }; })
+      (lib.mkIf backupCfg.enable { ${backupCfg.group} = { }; })
+      (lib.mkIf syncCfg.enable { ${syncCfg.group} = { }; })
     ];
 
     users.users = lib.mkMerge [
-      (lib.mkIf cfg.backup.enable {
-        ${cfg.backup.user} = {
+      (lib.mkIf backupCfg.enable {
+        ${backupCfg.user} = {
           isSystemUser = true;
-          inherit (cfg.backup) group;
+          inherit (backupCfg) group;
           home = backupDir;
           createHome = true;
         };
       })
-      (lib.mkIf cfg.sync.enable {
-        ${cfg.sync.user} = {
+      (lib.mkIf syncCfg.enable {
+        ${syncCfg.user} = {
           isSystemUser = true;
-          inherit (cfg.sync) group;
+          inherit (syncCfg) group;
           home = syncDir;
           createHome = true;
         };
@@ -194,67 +182,67 @@ in
 
     systemd = {
       tmpfiles.rules =
-        (lib.optional cfg.backup.enable "d ${backupDir} 0750 ${cfg.backup.user} ${cfg.backup.group} -")
-        ++ (lib.optional cfg.sync.enable "d ${syncDir} 0750 ${cfg.sync.user} ${cfg.sync.group} -");
+        (lib.optional backupCfg.enable "d ${backupDir} 0750 ${backupCfg.user} ${backupCfg.group} -")
+        ++ (lib.optional syncCfg.enable "d ${syncDir} 0750 ${syncCfg.user} ${syncCfg.group} -");
 
-      services.bw-backup = lib.mkIf cfg.backup.enable {
+      services.bw-backup = lib.mkIf backupCfg.enable {
         description = "Bitwarden backup";
         serviceConfig = {
           Type = "oneshot";
-          User = cfg.backup.user;
-          Group = cfg.backup.group;
+          User = backupCfg.user;
+          Group = backupCfg.group;
           WorkingDirectory = backupDir;
           ReadWritePaths = [ backupDir ];
-          EnvironmentFile = cfg.backup.environmentFiles;
+          EnvironmentFile = backupCfg.environmentFiles;
           Environment = envList (
             {
               BW_BACKUP_DIR = backupDir;
-              BW_BACKUP_RETENTION = toString cfg.backup.retention;
+              BW_BACKUP_RETENTION = toString backupCfg.retention;
             }
-            // cfg.backup.environment
+            // backupCfg.environment
           );
-          ExecStart = "${cfg.package}/bin/bw-backup";
+          ExecStart = "${backupCfg.package}/bin/bw-backup";
         };
       };
 
-      timers.bw-backup = lib.mkIf cfg.backup.enable {
+      timers.bw-backup = lib.mkIf backupCfg.enable {
         description = "Run Bitwarden backup";
         wantedBy = [ "timers.target" ];
         timerConfig = {
-          OnCalendar = cfg.backup.schedule;
+          OnCalendar = backupCfg.schedule;
           Persistent = true;
         };
       };
 
-      services.bw-sync = lib.mkIf cfg.sync.enable {
+      services.bw-sync = lib.mkIf syncCfg.enable {
         description = "Bitwarden vault sync";
         serviceConfig = {
           Type = "oneshot";
-          User = cfg.sync.user;
-          Group = cfg.sync.group;
+          User = syncCfg.user;
+          Group = syncCfg.group;
           WorkingDirectory = syncDir;
           ReadWritePaths = [ syncDir ];
-          EnvironmentFile = cfg.sync.environmentFiles;
-          Environment = envList (cfg.sync.environment // { WORKDIR = syncDir; });
-          ExecStart = "${cfg.syncPackage}/bin/bw-sync";
+          EnvironmentFile = syncCfg.environmentFiles;
+          Environment = envList (syncCfg.environment // { WORKDIR = syncDir; });
+          ExecStart = "${syncCfg.package}/bin/bw-sync";
         };
       };
 
-      timers.bw-sync = lib.mkIf cfg.sync.enable {
+      timers.bw-sync = lib.mkIf syncCfg.enable {
         description = "Run Bitwarden vault sync";
         wantedBy = [ "timers.target" ];
         timerConfig = {
-          OnCalendar = cfg.sync.period;
+          OnCalendar = syncCfg.period;
           Persistent = true;
         };
       };
     };
 
-    services.monit.config = lib.mkIf (cfg.backup.enable && cfg.backup.monit.enable) (
+    services.monit.config = lib.mkIf (backupCfg.enable && backupCfg.monit.enable) (
       let
         lastBackupCheck = pkgs.writeShellScript "bw-last-backup" ''
           set -euo pipefail
-          THRESHOLD=''${1:-${toString cfg.backup.monit.thresholdSeconds}}
+          THRESHOLD=''${1:-${toString backupCfg.monit.thresholdSeconds}}
           NOW=$(${pkgs.coreutils}/bin/date '+%s')
           LAST_FILE="${backupDir}/LAST_BACKUP"
 
