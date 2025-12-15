@@ -62,6 +62,20 @@ in
         description = "Number of backups to keep (0 disables rotation).";
       };
 
+      monit = {
+        enable = lib.mkOption {
+          type = lib.types.bool;
+          default = true;
+          description = "Enable Monit check for backup freshness.";
+        };
+
+        thresholdSeconds = lib.mkOption {
+          type = lib.types.int;
+          default = 86400;
+          description = "Maximum allowed age of the last backup timestamp before Monit alerts.";
+        };
+      };
+
       schedule = lib.mkOption {
         type = lib.types.str;
         default = "daily";
@@ -120,26 +134,13 @@ in
       };
     };
 
-    monit = {
-      enable = lib.mkOption {
-        type = lib.types.bool;
-        default = true;
-        description = "Enable Monit check for backup freshness.";
-      };
-
-      thresholdSeconds = lib.mkOption {
-        type = lib.types.int;
-        default = 86400;
-        description = "Maximum allowed age of the last backup timestamp before Monit alerts.";
-      };
-    };
   };
 
   config = lib.mkIf ensureUser {
     assertions = [
       {
-        assertion = !(cfg.monit.enable && !cfg.backup.enable);
-        message = "bw-backup.monit.enable requires bw-backup.backup.enable";
+        assertion = !(cfg.backup.monit.enable && !cfg.backup.enable);
+        message = "bw-backup.backup.monit.enable requires bw-backup.backup.enable";
       }
     ];
 
@@ -210,11 +211,11 @@ in
       };
     };
 
-    services.monit.config = lib.mkIf cfg.monit.enable (
+    services.monit.config = lib.mkIf (cfg.backup.enable && cfg.backup.monit.enable) (
       let
         lastBackupCheck = pkgs.writeShellScript "bw-last-backup" ''
           set -euo pipefail
-          THRESHOLD=''${1:-${toString cfg.monit.thresholdSeconds}}
+          THRESHOLD=''${1:-${toString cfg.backup.monit.thresholdSeconds}}
           NOW=$(${pkgs.coreutils}/bin/date '+%s')
           LAST_FILE="${backupDir}/LAST_BACKUP"
 
