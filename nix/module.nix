@@ -50,6 +50,18 @@ in
         description = "Enable periodic Bitwarden backups.";
       };
 
+      user = lib.mkOption {
+        type = lib.types.str;
+        default = cfg.user;
+        description = "System user used to run backup jobs.";
+      };
+
+      group = lib.mkOption {
+        type = lib.types.str;
+        default = cfg.group;
+        description = "System group used to run backup jobs.";
+      };
+
       backupPath = lib.mkOption {
         type = lib.types.str;
         default = "/var/lib/bw-backup/backups";
@@ -106,6 +118,18 @@ in
         description = "Enable syncing between two vaults.";
       };
 
+      user = lib.mkOption {
+        type = lib.types.str;
+        default = "bw-sync";
+        description = "System user used to run sync jobs.";
+      };
+
+      group = lib.mkOption {
+        type = lib.types.str;
+        default = "bw-sync";
+        description = "System group used to run sync jobs.";
+      };
+
       period = lib.mkOption {
         type = lib.types.str;
         default = "daily";
@@ -144,26 +168,41 @@ in
       }
     ];
 
-    users.groups.${cfg.group} = { };
+    users.groups = lib.mkMerge [
+      (lib.mkIf cfg.backup.enable { ${cfg.backup.group} = { }; })
+      (lib.mkIf cfg.sync.enable { ${cfg.sync.group} = { }; })
+    ];
 
-    users.users.${cfg.user} = {
-      isSystemUser = true;
-      inherit (cfg) group;
-      home = "/var/lib/${cfg.user}";
-      createHome = true;
-    };
+    users.users = lib.mkMerge [
+      (lib.mkIf cfg.backup.enable {
+        ${cfg.backup.user} = {
+          isSystemUser = true;
+          inherit (cfg.backup) group;
+          home = backupDir;
+          createHome = true;
+        };
+      })
+      (lib.mkIf cfg.sync.enable {
+        ${cfg.sync.user} = {
+          isSystemUser = true;
+          inherit (cfg.sync) group;
+          home = syncDir;
+          createHome = true;
+        };
+      })
+    ];
 
     systemd = {
       tmpfiles.rules =
-        (lib.optional cfg.backup.enable "d ${backupDir} 0750 ${cfg.user} ${cfg.group} -")
-        ++ (lib.optional cfg.sync.enable "d ${syncDir} 0750 ${cfg.user} ${cfg.group} -");
+        (lib.optional cfg.backup.enable "d ${backupDir} 0750 ${cfg.backup.user} ${cfg.backup.group} -")
+        ++ (lib.optional cfg.sync.enable "d ${syncDir} 0750 ${cfg.sync.user} ${cfg.sync.group} -");
 
       services.bw-backup = lib.mkIf cfg.backup.enable {
         description = "Bitwarden backup";
         serviceConfig = {
           Type = "oneshot";
-          User = cfg.user;
-          Group = cfg.group;
+          User = cfg.backup.user;
+          Group = cfg.backup.group;
           WorkingDirectory = backupDir;
           ReadWritePaths = [ backupDir ];
           EnvironmentFile = cfg.backup.environmentFiles;
@@ -191,8 +230,8 @@ in
         description = "Bitwarden vault sync";
         serviceConfig = {
           Type = "oneshot";
-          User = cfg.user;
-          Group = cfg.group;
+          User = cfg.sync.user;
+          Group = cfg.sync.group;
           WorkingDirectory = syncDir;
           ReadWritePaths = [ syncDir ];
           EnvironmentFile = cfg.sync.environmentFiles;
