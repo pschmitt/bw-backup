@@ -19,7 +19,8 @@ SRC_BW_CLIENTID="${SRC_BW_CLIENTID:-$BW_CLIENTID}"
 SRC_BW_CLIENTSECRET="${SRC_BW_CLIENTSECRET:-$BW_CLIENTSECRET}"
 SRC_BW_PASSWORD="${SRC_BW_PASSWORD:-$BW_PASSWORD}"
 
-WORKDIR="${WORKDIR:-${TMPDIR:-/tmp}/bw-sync}"
+TMPDIR="${TMPDIR:-/tmp}"
+WORKDIR="${WORKDIR:-${TMPDIR}/bw-sync}"
 SRC_BW_CONFIG_HOME="${SRC_BW_CONFIG_HOME:-${WORKDIR}/src-config}"
 DEST_BW_CONFIG_HOME="${DEST_BW_CONFIG_HOME:-${WORKDIR}/dest-config}"
 SOURCE_EXPORT_FILE="${WORKDIR}/source-export.json"
@@ -249,6 +250,7 @@ export_source_data() {
 }
 
 purge_destination_vault() {
+  local logfile="${TMPDIR}/bw-sync-purge.log"
   echo_info "[destination] Purging vault."
   if ! python3 "$HELPER_PY" purge \
     --server "$DEST_BW_URL" \
@@ -256,27 +258,28 @@ purge_destination_vault() {
     --api-client-secret "$DEST_BW_CLIENTSECRET" \
     --email "$DEST_BW_EMAIL" \
     --master-password "$DEST_BW_PASSWORD" \
-    >/tmp/bw-sync-purge.log 2>&1
+    &>"$logfile"
   then
     echo_error "Failed to purge destination vault."
-    cat /tmp/bw-sync-purge.log >&2 || true
+    cat "$logfile" >&2 || true
     return 1
   fi
-  rm -f /tmp/bw-sync-purge.log
+  rm -f "$logfile"
 }
 
 import_to_destination() {
   bw_use_env "$DEST_BW_CONFIG_HOME" "$DEST_SESSION"
 
   echo_info "[destination] Importing items from source export."
-  local import_log="${WORKDIR}/dest-import.log"
-  if ! bw --session "$DEST_SESSION" --raw import bitwardenjson "$SOURCE_EXPORT_FILE" >"$import_log" 2>&1
+  local logfile="${WORKDIR}/dest-import.log"
+  if ! bw --session "$DEST_SESSION" --raw import bitwardenjson "$SOURCE_EXPORT_FILE" &>"$logfile"
   then
     echo_error "Import into destination failed."
-    cat "$import_log" >&2
+    cat "$logfile" >&2
     return 1
   fi
-  echo_info "[destination] Import completed. Log: $import_log"
+  rm -f "$logfile"
+  echo_info "[destination] Import completed"
 
   if [[ ! -d "$SOURCE_ATTACHMENTS_DIR" ]]
   then
