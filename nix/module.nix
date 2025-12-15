@@ -166,7 +166,7 @@ in
         ${backupCfg.user} = {
           isSystemUser = true;
           inherit (backupCfg) group;
-          home = backupDir;
+          home = "/var/lib/${backupCfg.user}";
           createHome = true;
         };
       })
@@ -174,7 +174,7 @@ in
         ${syncCfg.user} = {
           isSystemUser = true;
           inherit (syncCfg) group;
-          home = syncDir;
+          home = "/var/lib/${syncCfg.user}";
           createHome = true;
         };
       })
