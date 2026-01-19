@@ -206,10 +206,8 @@ in
 
     systemd = {
       tmpfiles.rules =
-        (lib.optional backupCfg.enable "d ${backupDir} 0750 ${backupCfg.user} ${backupCfg.group} - -")
-        ++ (lib.optional backupCfg.enable "Z ${backupDir} 0750 ${backupCfg.user} ${backupCfg.group} - -")
-        ++ (lib.optional syncCfg.enable "d ${syncDir} 0750 ${syncCfg.user} ${syncCfg.group} - -")
-        ++ (lib.optional syncCfg.enable "Z ${syncDir} 0750 ${syncCfg.user} ${syncCfg.group} - -");
+        (lib.optional backupCfg.enable "Z ${backupDir} 0750 ${backupCfg.user} ${backupCfg.group} -")
+        ++ (lib.optional syncCfg.enable "Z ${syncDir} 0750 ${syncCfg.user} ${syncCfg.group} -");
 
       services.bw-backup = lib.mkIf backupCfg.enable {
         description = "Bitwarden backup";
