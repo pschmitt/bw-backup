@@ -207,7 +207,11 @@ in
     systemd = {
       tmpfiles.rules =
         (lib.optional backupCfg.enable "Z ${backupDir} 0750 ${backupCfg.user} ${backupCfg.group} -")
-        ++ (lib.optional syncCfg.enable "Z ${syncDir} 0750 ${syncCfg.user} ${syncCfg.group} -");
+        ++ (lib.optional syncCfg.enable "Z ${syncDir} 0750 ${syncCfg.user} ${syncCfg.group} -")
+        # Ensure parent directory of backupPath exists if it is not /var/lib/bw-backup
+        ++ (lib.optional (backupCfg.enable && (dirOf backupDir) != "/var/lib/${backupCfg.user}") "z ${dirOf backupDir} 0750 ${backupCfg.user} ${backupCfg.group} -")
+        # Ensure parent directory of workDir exists if it is not /var/lib/bw-sync
+        ++ (lib.optional (syncCfg.enable && (dirOf syncDir) != "/var/lib/${syncCfg.user}") "z ${dirOf syncDir} 0750 ${syncCfg.user} ${syncCfg.group} -");
 
       services.bw-backup = lib.mkIf backupCfg.enable {
         description = "Bitwarden backup";
