@@ -50,6 +50,9 @@ Optional:
 - `DEST_BW_PURGE_VAULT` if set to `1` will delete all items in the destination vault
 before importing.
 - `DOWNLOAD_PARALLELISM` controls parallel attachment downloads (default: 10).
+- `DOWNLOAD_TIMEOUT` kills a single attachment download after this many
+seconds (default: 300). Without it a single hung download blocks the whole
+sync indefinitely.
 - `HEALTHCHECK_URL` works here too; sync will ping start/fail/success.
 
 ## How do I decrypt my backup?

@@ -17,6 +17,7 @@ download_attachments() {
   local items_json="$2"
   local dest_root="$3"
   local jobs="${4:-${DOWNLOAD_PARALLELISM:-10}}"
+  local download_timeout="${DOWNLOAD_TIMEOUT:-300}"
 
   mkdir -p "$dest_root"
 
@@ -66,10 +67,13 @@ download_attachments() {
     return 0
   fi
 
-  echo_info "Downloading ${total_attachments} attachments (parallel=${jobs})."
+  echo_info "Downloading ${total_attachments} attachments (parallel=${jobs}, timeout=${download_timeout}s)."
   export BW_SESSION="$session"
 
   export ATT_DEST_ROOT="$dest_root"
+  # NOTE Without a timeout a single hung download blocks xargs (and thereby
+  # the whole sync) forever.
+  export ATT_DOWNLOAD_TIMEOUT="$download_timeout"
   export -f echo_info echo_warning
   # shellcheck disable=SC2016
   xargs -0 -P "$jobs" -I{} bash -c '
@@ -82,7 +86,15 @@ download_attachments() {
       echo_warning "Attachment already exists: $dest"
       exit 0
     fi
-    if ! bw --session "$BW_SESSION" get attachment "$att_id" --itemid "$item_id" --output "$dest" &>/dev/null
+    rc=0
+    timeout -k 30 "$ATT_DOWNLOAD_TIMEOUT" \
+      bw --session "$BW_SESSION" get attachment "$att_id" --itemid "$item_id" --output "$dest" \
+      &>/dev/null || rc=$?
+    if [[ "$rc" -eq 124 || "$rc" -eq 137 ]]
+    then
+      echo_warning "Download of $att_name timed out after ${ATT_DOWNLOAD_TIMEOUT}s (item id: $item_id)"
+      exit 1
+    elif [[ "$rc" -ne 0 ]]
     then
       echo_warning "Download of $att_name failed (item id: $item_id)"
       exit 1
