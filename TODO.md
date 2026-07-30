@@ -149,7 +149,7 @@ config.json all confirmed by inspecting the build output directly.
         to get `vault.json`). README's decrypt section updated to mention
         the extra `tar xzf` step.
 
-## 10. Downstream (nixos-config.git, rofl-10) — done, minus the collections job
+## 10. Downstream (nixos-config.git, rofl-10) — done
 31. [x] `services/backups/bitwarden.nix` updated against the new module
         shape (`account`/`sourceAccount`/`destAccount` submodules) with
         the real account emails/base URL filled in (via `SOPS_AGE_KEY`
@@ -169,11 +169,17 @@ config.json all confirmed by inspecting the build output directly.
         already-scaffolded `path:` override (local working tree) since
         nothing's been pushed yet — flip back to `github:pschmitt/
         bw-backup` once it has been (see §33).
-32. [ ] `services.bw-sync.collections` still left commented out (real
-        org/collection names intentionally not committed anywhere) until
-        the destination org and any other member's Vaultwarden account
-        membership in it actually exist — `rbw org invite`/`rbw org
-        confirm` aren't something this module automates.
+32. [x] `services.bw-sync.collections` enabled. The Bergmann-Schmitt org
+        and both collections created directly via `rbw` (using an
+        already-configured local account pointed at the same Vaultwarden
+        instance) before flipping the config on: `rbw org create`, then
+        `rbw collection create` x2. Vaultwarden auto-creates its own
+        "Default Collection" alongside a brand-new org -- harmless, the
+        sync only ever targets the exact-name "default" collection
+        created here, never that one. Org membership for anyone besides
+        destAccount (e.g. Anika) still needs `rbw org invite`/`rbw org
+        confirm` by hand -- not something this module automates, and not
+        done yet.
 33. [x] `bw-backup.git` pushed to `github:pschmitt/bw-backup` (`main`),
         `nixos-config.git`'s `bw-backup` and top-level `rbw` flake inputs
         both re-pointed at `github:` (off the temporary `path:` override)
@@ -211,8 +217,33 @@ config.json all confirmed by inspecting the build output directly.
         live-verified (sandbox had no pinentry/TTY) -- this run is that
         verification, recorded there too.
 
-        Still not covered: the *scoped per-collection* `--purge-dest`
-        path (`services.bw-sync.collections`, still disabled -- see §10
-        item 32) remains genuinely unverified against a real server;
-        don't assume it works the same way until it's actually exercised
-        against a disposable collection first.
+36. [x] `services.bw-sync.collections` live-verified too, once §10 item 32
+        turned it on. Two more real bugs surfaced and were fixed:
+        - `envList` didn't quote `Environment=` values -- systemd
+          word-splits unquoted values on whitespace, so
+          `DEST_BW_COLLECTIONS`/`DEST_BW_ORG` (both containing spaces in
+          the real org/collection names) got silently truncated at the
+          first space, logged only as "Invalid environment assignment,
+          ignoring: hat"/"ihr"/etc with no indication *which* variable
+          was affected. Fixed by wrapping every value in double quotes.
+        - `services.bw-sync.collections.workDir`'s tmpfiles rule didn't
+          get applied by the switch that first enabled it (an unrelated
+          "root user activation failed: Connection is closed" hiccup
+          during that same switch likely interrupted it), so the first
+          run failed with `Failed to set up mount namespacing: ...: No
+          such file or directory`. Fixed by hand this once
+          (`install -d`); worth keeping an eye on whether this recurs on
+          a clean switch, since if so the module should probably not
+          rely solely on the automatic tmpfiles application here.
+
+        Both collections (`default`, `Anika hat ihr Passwort vergessen`)
+        then mirrored 2211 entries / 53 attachments each in ~1m20s,
+        exercising the *scoped per-collection* `--purge-dest` path this
+        TODO previously flagged as genuinely unverified -- it executed
+        cleanly ("no entries currently in '<collection>' -- nothing to
+        purge", since these were brand-new empty collections). A run
+        that actually has existing entries to purge (e.g. the next
+        scheduled sync, or removing/renaming a source entry before a
+        manual trigger) still hasn't been observed, so treat the
+        purge-with-existing-entries case as the one remaining unverified
+        edge until that happens naturally.
