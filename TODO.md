@@ -174,22 +174,45 @@ config.json all confirmed by inspecting the build output directly.
         the destination org and any other member's Vaultwarden account
         membership in it actually exist — `rbw org invite`/`rbw org
         confirm` aren't something this module automates.
-33. [ ] Re-point the `bw-backup` flake input back at `github:pschmitt/
-        bw-backup` once it's actually pushed there (nothing in
-        `bw-backup.git` has been committed yet, let alone pushed — only
-        `rbw.git` has: `register --stdin` plus the `2.13.3` version bump,
-        both pushed, tag `v2.13.3` pushed too, triggering the `release`/
-        `docker` GH Actions workflows).
+33. [x] `bw-backup.git` pushed to `github:pschmitt/bw-backup` (`main`),
+        `nixos-config.git`'s `bw-backup` and top-level `rbw` flake inputs
+        both re-pointed at `github:` (off the temporary `path:` override)
+        and kept in sync across several follow-up fixes (see §11).
 
-## 11. Validation — not started, do this before touching rofl-10's real cron/timers
-34. [ ] Dry-run `bw-backup` against a throwaway/test bitwarden.com or
-        Vaultwarden account (not the real personal vault) end-to-end,
-        including `rbw register` if it's an official-server test account.
-35. [ ] Dry-run `bw-sync` in both modes against disposable test
-        accounts/org (create a scratch org + a scratch collection, not
-        the real destination org) — `--purge-dest` (both the whole-vault and
-        scoped-collection variants) is irreversible, and the scoped
-        per-collection purge path in `rbw mirror` specifically has *not*
-        been live-verified upstream yet (only unit/clippy-tested, per
-        rbw's own TODO.md) — treat it as unverified until proven otherwise
-        against a disposable collection.
+## 11. Validation — done, against the real production accounts on rofl-10
+34. [x] `bw-backup.service` and `bw-sync.service` both run for real (not a
+        throwaway account — `rbw register`/2FA meant a disposable test
+        account wouldn't have caught the real bugs anyway). Three actual
+        bugs surfaced across successive redeploys, each fixed, verified,
+        and redeployed in turn:
+        - `mkRegisterCheck` referenced `${backupCfg.package}/bin/rbw` --
+          the bw-backup/bw-sync derivation itself, which only wraps `rbw`
+          onto its own PATH via `wrapProgram`, never installs an `rbw`
+          binary into its own `bin/`. Fixed to reference `pkgs.rbw`
+          directly.
+        - `rbw` in turn couldn't launch its own `rbw-agent` (plain PATH
+          lookup, nothing set up in that standalone script's env). Fixed
+          by exporting both `PATH` and `$RBW_AGENT` in the generated
+          register scripts.
+        - The personal bitwarden.com account has Authenticator-based TOTP
+          2FA, which the old api-key-based `bw` CLI login never needed to
+          clear. Added `BW_TOTP_SECRET`/`SRC_BW_TOTP_SECRET`/
+          `DEST_BW_TOTP_SECRET` (optional, base32, via `oathtool`) to
+          `lib.sh`'s `rbw_prepare_account` -- see §4/§5/§6 above.
+35. [x] Both jobs completed cleanly end-to-end once those were fixed:
+        `bw-backup` produced a real 27.4MB encrypted export and pruned
+        correctly; `bw-sync` (personal mode, `--purge-dest`) purged the
+        destination's personal vault and mirrored 2211 entries / 41
+        attachments in 1m42s with zero errors -- notably faster and
+        cleaner than the old bw-cli/bw.py pipeline it replaced (~6
+        minutes, several failed attachment uploads logged the night
+        before). Also fed back upstream: `rbw`'s own TODO.md previously
+        flagged `mirror`'s whole-vault `--purge-dest` path as never
+        live-verified (sandbox had no pinentry/TTY) -- this run is that
+        verification, recorded there too.
+
+        Still not covered: the *scoped per-collection* `--purge-dest`
+        path (`services.bw-sync.collections`, still disabled -- see §10
+        item 32) remains genuinely unverified against a real server;
+        don't assume it works the same way until it's actually exercised
+        against a disposable collection first.
