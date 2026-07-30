@@ -284,8 +284,30 @@ config.json all confirmed by inspecting the build output directly.
         The source account is only ever read here, never modified --
         every rename/purge/create in response to this correction targets
         the destination account exclusively.
-41. [ ] Downstream (nixos-config.git): update `collections.org` and
-        `collections.names` to the corrected real values, redeploy to
-        rofl-10, and re-run `bw-sync-collections.service` once to verify
-        the corrected mapping end-to-end against production. Not yet
-        done as of this writing.
+41. [x] Downstream (nixos-config.git): updated `collections.org`/
+        `collections.names` to the corrected real values, bumped the
+        `bw-backup`/`rbw` flake inputs, redeployed to rofl-10
+        (`systemctl restart nixos-upgrade.service` there), and ran
+        `bw-sync-collections.service` for real. Two of the three
+        collections mirrored correctly (full-vault mirror into the
+        collection with no source-side counterpart; scoped 1:1 mirror of
+        the source collection into its same-named destination
+        collection); the third failed with `rbw mirror: multiple
+        collections found for 'Default collection': ... use the
+        collection ID instead` -- see item 42.
+42. [x] Root cause of that failure: two *different* destination orgs each
+        had a collection named "Default collection" -- the real one, and
+        a leftover from earlier rbw-fork live-testing (a throwaway
+        "rbw-tests" org with its own auto-created default collection).
+        `rbw mirror --dest-collection NAME`'s name resolution had no way
+        to scope by destination org, so it matched both and refused to
+        guess. Per instruction, did *not* touch/delete the stale test
+        org -- fixed this properly instead by adding `--dest-org` to
+        `rbw mirror` upstream (rbw v2.13.6) and passing it
+        (`$org_id`, already resolved via `rbw_ensure_org`) on both
+        `rbw mirror` call sites in `mirror_collections`. This also fixes
+        the bug class generically, not just for this one collision.
+        Not yet re-verified end-to-end against production -- next step
+        is bumping nixos-config.git's `rbw`/`bw-backup` inputs again,
+        redeploying, and re-running `bw-sync-collections.service` to
+        confirm all three collections now mirror cleanly in one pass.

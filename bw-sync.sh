@@ -164,7 +164,7 @@ mirror_collections() {
     then
       echo_info "Mirroring source collection '$name' -> destination collection '$name'"
       if ! rbw mirror --from "$SRC_ACCOUNT" --to "$DEST_ACCOUNT" --yes \
-        --collection "$src_id" --dest-collection "$name" "${flags[@]}"
+        --collection "$src_id" --dest-collection "$name" --dest-org "$org_id" "${flags[@]}"
       then
         echo_error "Mirror of collection '$name' failed."
         rc=1
@@ -172,7 +172,7 @@ mirror_collections() {
     else
       echo_info "Mirroring entire vault -> destination collection: $name"
       if ! rbw mirror --from "$SRC_ACCOUNT" --to "$DEST_ACCOUNT" --yes \
-        --dest-collection "$name" --purge-dest "${flags[@]}"
+        --dest-collection "$name" --dest-org "$org_id" --purge-dest "${flags[@]}"
       then
         echo_error "Mirror into collection '$name' failed."
         rc=1
