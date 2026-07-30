@@ -47,6 +47,9 @@ podman run -it --rm \
 - `ACCOUNT_BASE_URL` (optional): the account's server URL, omit for the
   official bitwarden.com.
 - `BW_PASSWORD`: the account's master password.
+- `BW_TOTP_SECRET` (optional): the account's TOTP secret (base32, the same
+  one an authenticator app would use), if it has TOTP-based 2FA enabled.
+  A fresh code is generated per login/unlock via `oathtool`.
 - `BW_BACKUP_REGISTER_CLIENT_ID`/`BW_BACKUP_REGISTER_CLIENT_SECRET`
   (optional): personal API key, used once to run `rbw register`
   non-interactively against bitwarden.com.
@@ -86,6 +89,9 @@ podman run -it --rm \
 - `SRC_ACCOUNT_EMAIL`/`DEST_ACCOUNT_EMAIL`, `SRC_ACCOUNT_BASE_URL`/
   `DEST_ACCOUNT_BASE_URL`: connection metadata for `config.json`.
 - `SRC_BW_PASSWORD`/`DEST_BW_PASSWORD`: the two accounts' master passwords.
+- `SRC_BW_TOTP_SECRET`/`DEST_BW_TOTP_SECRET` (optional): TOTP secrets for
+  whichever account(s) have TOTP-based 2FA enabled, same as `BW_TOTP_SECRET`
+  above.
 - `SRC_REGISTER_CLIENT_ID`/`SRC_REGISTER_CLIENT_SECRET`,
   `DEST_REGISTER_CLIENT_ID`/`DEST_REGISTER_CLIENT_SECRET` (optional):
   personal API keys for `rbw register`, same as above.

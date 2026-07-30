@@ -7,6 +7,7 @@
   curl,
   findutils,
   gnupg,
+  oath-toolkit,
   rbw,
 }:
 
@@ -38,6 +39,7 @@ stdenvNoCC.mkDerivation {
           curl
           findutils
           gnupg
+          oath-toolkit
           rbw
         ]
       }

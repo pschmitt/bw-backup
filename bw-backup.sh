@@ -42,7 +42,7 @@ validate_retention() {
 bw_export() {
   validate_backup_root || return 1
 
-  if ! rbw_prepare_account "$ACCOUNT" "$BW_PASSWORD"
+  if ! rbw_prepare_account "$ACCOUNT" "$BW_PASSWORD" "${BW_TOTP_SECRET:-}"
   then
     healthcheck_ping fail "Login/unlock failed (bw-backup)"
     exit 1

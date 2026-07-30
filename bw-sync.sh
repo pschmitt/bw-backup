@@ -170,13 +170,13 @@ main() {
   mkdir -p "$WORKDIR"
   trap cleanup EXIT INT TERM
 
-  if ! rbw_prepare_account "$SRC_ACCOUNT" "$SRC_BW_PASSWORD"
+  if ! rbw_prepare_account "$SRC_ACCOUNT" "$SRC_BW_PASSWORD" "${SRC_BW_TOTP_SECRET:-}"
   then
     healthcheck_ping fail "bw-sync source login failed"
     return 1
   fi
 
-  if ! rbw_prepare_account "$DEST_ACCOUNT" "$DEST_BW_PASSWORD"
+  if ! rbw_prepare_account "$DEST_ACCOUNT" "$DEST_BW_PASSWORD" "${DEST_BW_TOTP_SECRET:-}"
   then
     healthcheck_ping fail "bw-sync destination login failed"
     return 1

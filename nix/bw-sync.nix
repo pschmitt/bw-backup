@@ -6,6 +6,7 @@
   coreutils,
   curl,
   jq,
+  oath-toolkit,
   rbw,
 }:
 
@@ -36,6 +37,7 @@ stdenvNoCC.mkDerivation {
           coreutils
           curl
           jq
+          oath-toolkit
           rbw
         ]
       }

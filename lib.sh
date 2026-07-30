@@ -39,23 +39,46 @@ healthcheck_ping() {
   fi
 }
 
+# Prints a fresh TOTP code for a base32 secret. No-op (prints nothing) if no
+# secret is given, so callers can pass this through unconditionally.
+rbw_totp_code() {
+  local secret="$1"
+  if [[ -z "$secret" ]]
+  then
+    return 0
+  fi
+  oathtool --totp -b "$secret"
+}
+
 # Logs a configured rbw account in and unlocks it, both non-interactively via
 # --stdin, then refreshes its local db cache. Requires the account to already
 # be present in rbw's config.json (email/base_url etc) -- only the master
-# password is supplied here.
+# password (and, if the account has TOTP-based 2FA enabled, a base32 TOTP
+# secret to generate fresh codes from) is supplied here.
 rbw_prepare_account() {
   local account="$1"
   local password="$2"
+  local totp_secret="${3:-}"
+
+  local -a totp_args=()
 
   echo_info "[$account] Logging in."
-  if ! printf '%s\n' "$password" | rbw --account "$account" login --stdin
+  if [[ -n "$totp_secret" ]]
+  then
+    totp_args=(--totp "$(rbw_totp_code "$totp_secret")")
+  fi
+  if ! printf '%s\n' "$password" | rbw --account "$account" login --stdin "${totp_args[@]}"
   then
     echo_error "[$account] Login failed. Verify the account's email/base_url in config.json (and, for bitwarden.com, that 'rbw register' has been run)."
     return 1
   fi
 
   echo_info "[$account] Unlocking."
-  if ! printf '%s\n' "$password" | rbw --account "$account" unlock --stdin
+  if [[ -n "$totp_secret" ]]
+  then
+    totp_args=(--totp "$(rbw_totp_code "$totp_secret")")
+  fi
+  if ! printf '%s\n' "$password" | rbw --account "$account" unlock --stdin "${totp_args[@]}"
   then
     echo_error "[$account] Unlock failed. Verify the master password."
     return 1
