@@ -12,7 +12,12 @@ let
   syncCfg = config.services.bw-sync;
   collectionsCfg = syncCfg.collections;
 
-  envList = env: lib.mapAttrsToList (n: v: "${n}=${toString v}") env;
+  # systemd's `Environment=` word-splits unquoted values on whitespace, so a
+  # value containing a space (an org/collection name, say) silently gets
+  # truncated at the first one unless quoted -- NixOS's systemd module does
+  # not do this quoting for us. None of this module's values ever contain a
+  # literal `"`, so plain wrapping (no embedded-quote escaping) is enough.
+  envList = env: lib.mapAttrsToList (n: v: ''${n}="${toString v}"'') env;
 
   backupDir = backupCfg.backupPath;
   syncDir = syncCfg.workDir;
