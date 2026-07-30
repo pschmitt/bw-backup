@@ -22,6 +22,14 @@ API key for `rbw register`) at runtime. The NixOS module (see below)
 renders `config.json` for you; for plain Docker usage, `entrypoint.sh`
 renders it from env vars on every start.
 
+For interactive Android/Termux use, install the
+[pschmitt/rbw fork](https://github.com/pschmitt/rbw) rather than upstream
+`rbw`. It includes native `termux-keystore`/`termux-fingerprint` unlock
+support; configure `accounts.<name>.unlock.termux` in rbw's
+`config.json` after creating a bundle with `rbw termux generate`
+and `rbw termux enroll`. The container jobs documented here continue
+to receive their password through their existing environment-file mechanism.
+
 *Note on bitwarden.com*: the official server requires a one-time `rbw
 register` (personal API key) per account before scripted login works (bot
 detection). Both scripts run this automatically before login, but it's a
