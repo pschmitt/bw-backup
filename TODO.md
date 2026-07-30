@@ -397,3 +397,26 @@ config.json all confirmed by inspecting the build output directly.
         Downstream (nixos-config.git) still needs updating to the new
         `backups.<name>`/`syncs.<name>` schema before this can be
         redeployed and live-verified against rofl-10.
+
+45. [x] Downstream (nixos-config.git): migrated `services/backups/bitwarden.nix`
+        to the new schema (`bw-backup.backups.personal`,
+        `bw-sync.syncs.personal`/`bw-sync.syncs.org-collections`), bumped
+        the `bw-backup` flake input, redeployed to rofl-10, and ran all
+        three jobs for real. One recurring quirk resurfaced: the new
+        `workDir`/`backupPath` defaults (`/var/lib/bw-sync/personal`,
+        `/var/lib/bw-sync/org-collections`) didn't get created by
+        `systemd-tmpfiles` on this switch either (same as the original
+        `services.bw-sync.collections.workDir` issue) -- fixed by hand
+        via `install -d` once more; still unresolved *why* this
+        particular tmpfiles rule keeps not applying automatically on a
+        switch that changes it, worth investigating if it recurs a third
+        time.
+
+        All three jobs succeeded (`Result=success`, exit 0):
+        `bw-sync-org-collections` mirrored all three collections cleanly
+        in one pass (same as the earlier `--dest-org` verification, now
+        via its renamed unit); `bw-sync-personal` purged and re-mirrored
+        the whole vault; `bw-backup-personal` exported and pruned old
+        backups. `pgrep -x rbw-agent` showed no lingering process after
+        any of the three runs, confirming the `ExecStopPost` agent-stop
+        fix works in practice, not just in the module's own logic.
