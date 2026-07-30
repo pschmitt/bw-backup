@@ -231,9 +231,10 @@ rbw export --from-file data/bw-export-xxx.tar.gz.gpg \
 ```
 
 If putting the passphrase in the environment is not suitable, every
-`--from-file` command accepts `--from-file-passphrase PASSPHRASE`; this may
-be exposed through `ps` and shell history. `--attachments` must have been
-used when the backup was created if attachment contents should be available
-to the TUI, attachment commands, or zip conversion. The legacy
+`--from-file` command accepts `--passphrase PASSPHRASE`; this may be exposed
+through `ps` and shell history. The older
+`--from-file-passphrase PASSPHRASE` spelling remains an alias. `--attachments`
+must have been used when the backup was created if attachment contents should
+be available to the TUI, attachment commands, or zip conversion. The legacy
 [decrypt.sh](decrypt.sh) wrapper remains available, but the native `rbw`
 commands preserve the export format and support direct querying/conversion.
