@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib.sh
 source "${SCRIPT_DIR}/lib.sh"
 
-BW_CONFIG_HOME="${BW_CONFIG_HOME:-$HOME/.config/Bitwarden CLI}"
+ACCOUNT="${ACCOUNT:-backup}"
 LOCKFILE="${TMPDIR:-/tmp}/bw-backup.lock"
 HEALTHCHECK_URL="${HEALTHCHECK_URL%/}"
 BW_BACKUP_DIR="${BW_BACKUP_DIR:-/data}"
@@ -20,7 +20,8 @@ then
   BW_BACKUP_RETENTION_EXPLICIT=1
 fi
 BW_BACKUP_RETENTION="${BW_BACKUP_RETENTION:-${KEEP:-30}}"
-BW_CURRENT_BACKUP_DIR=""
+BW_BACKUP_ATTACHMENTS="${BW_BACKUP_ATTACHMENTS:-1}"
+BW_CURRENT_BACKUP_FILE=""
 
 validate_backup_root() {
   if [[ -z "$BW_BACKUP_DIR" || "$BW_BACKUP_DIR" == "/" ]]
@@ -38,64 +39,14 @@ validate_retention() {
   fi
 }
 
-bw_set_url() {
-  if [[ -z "$BW_URL" ]]
-  then
-    return 0
-  fi
-
-  local bw_current_server
-  # Check if there is a config file
-  if [[ -e ${BW_CONFIG_HOME}/data.json ]]
-  then
-    bw_current_server=$(bw config server)
-  fi
-
-  if [[ "$bw_current_server" == "$BW_URL" ]]
-  then
-    return 0
-  fi
-
-  echo_info "Setting Bitwarden server to $BW_URL"
-  bw config server "$BW_URL" >/dev/null
-}
-
-bw_login() {
-  echo_info "Logging in using API key."
-  local bw_status
-  bw_status=$(bw status | jq -er .status)
-
-  if [[ -z "$BW_SESSION" && "$bw_status" == "unauthenticated" ]]
-  then
-    if ! bw login --raw --nointeraction --apikey >/dev/null
-    then
-      echo_error "Login failed. Verify values of BW_CLIENTID and BW_CLIENTSECRET"
-      return 1
-    fi
-  fi
-
-  if ! bw unlock --raw "$BW_PASSWORD"
-  then
-    echo_error "Unlock failed. Verify value of BW_PASSWORD"
-    return 1
-  fi
-}
-
 bw_export() {
   validate_backup_root || return 1
-  bw_set_url
-  if ! BW_SESSION=$(bw_login)
+
+  if ! rbw_prepare_account "$ACCOUNT" "$BW_PASSWORD"
   then
-    healthcheck_ping fail "Login failed (bw-backup)"
+    healthcheck_ping fail "Login/unlock failed (bw-backup)"
     exit 1
   fi
-
-  export BW_SESSION
-  echo_info "bw status"
-  bw status
-
-  echo_info "Force syncing vault"
-  bw sync --force
 
   mkdir -p "$BW_BACKUP_DIR"
   if [[ -e "$CLEAR_DATA" ]]
@@ -103,60 +54,35 @@ bw_export() {
     rm -rf "${BW_BACKUP_DIR:?}/"*
   fi
 
-  BW_CURRENT_BACKUP_DIR="${BW_BACKUP_DIR}/bw-export-$(date -Iseconds)"
+  local ext="json"
+  local -a export_args=(export)
 
-  # NOTE this does NOT contains attachment data
-  echo_info "Exporting items (bw export)"
-  if ! bw export --format json --output "${BW_CURRENT_BACKUP_DIR}/bitwarden-export.json"
+  if [[ "$BW_BACKUP_ATTACHMENTS" == "1" ]]
+  then
+    export_args+=(--attachments)
+  fi
+
+  if [[ -z "$ENCRYPTION_PASSPHRASE" ]]
+  then
+    echo_info "No encryption passphrase provided. Skipping encryption."
+  else
+    export_args+=(--encrypt)
+    ext="tar.gz.gpg"
+    export RBW_EXPORT_PASSPHRASE="$ENCRYPTION_PASSPHRASE"
+  fi
+
+  BW_CURRENT_BACKUP_FILE="${BW_BACKUP_DIR}/bw-export-$(date -Iseconds).${ext}"
+
+  echo_info "Exporting vault ($ACCOUNT) -> $BW_CURRENT_BACKUP_FILE"
+  if ! rbw --account "$ACCOUNT" "${export_args[@]}" --output "$BW_CURRENT_BACKUP_FILE"
   then
     echo_error "Export failed."
     healthcheck_ping fail "Export failed (bw-backup)"
     exit 1
   fi
 
-  # NOTE this does contain attachment data
-  echo_info "Exporting all item (bw list items)"
-  if ! bw list items --pretty > "${BW_CURRENT_BACKUP_DIR}/bitwarden-list-items.json"
-  then
-    echo_error "List items failed."
-    healthcheck_ping fail "List items failed (bw-backup)"
-    exit 1
-  fi
-
-  if ! bw_export_attachments
-  then
-    echo_error "Export of attachments failed."
-  fi
-
-  local archive="$BW_CURRENT_BACKUP_DIR.tar.gz"
-  echo_info "Creating archive: $BW_CURRENT_BACKUP_DIR/* -> $archive"
-  (cd "$BW_CURRENT_BACKUP_DIR" || exit 3; tar cvzf "$archive" --transform 's|^./||' -- *)
-
-  local latest="$archive"
-  if [[ -z "$ENCRYPTION_PASSPHRASE" ]]
-  then
-    echo_info "No encryption passphrase provided. Skipping encryption."
-  else
-    local gpg_archive="${archive}.gpg"
-    echo_info "Encrypting backup: $archive -> $gpg_archive"
-    if gpg --batch --yes --passphrase "$ENCRYPTION_PASSPHRASE" --symmetric \
-      --cipher-algo AES256 --output "${archive}.gpg" "$archive"
-    then
-      latest="$gpg_archive"
-      rm -vf "$archive"
-    else
-      echo_error "Encryption FAILED."
-    fi
-  fi
-
-  ln -sfv "$(basename "$latest")" "${BW_BACKUP_DIR}/bw-export-latest"
+  ln -sfv "$(basename "$BW_CURRENT_BACKUP_FILE")" "${BW_BACKUP_DIR}/bw-export-latest"
   date '+%s' > "${BW_BACKUP_DIR}/LAST_BACKUP"
-}
-
-bw_export_attachments() {
-  local wrapped_items="${BW_CURRENT_BACKUP_DIR}/bitwarden-items-wrapped.json"
-  jq '{items: .}' "${BW_CURRENT_BACKUP_DIR}/bitwarden-list-items.json" > "$wrapped_items"
-  download_attachments "$BW_SESSION" "$wrapped_items" "${BW_CURRENT_BACKUP_DIR}/attachments"
 }
 
 backup_rotate() {
@@ -185,8 +111,8 @@ backup_rotate() {
 }
 
 cleanup() {
-  bw logout
-  rm -rf "$BW_CURRENT_BACKUP_DIR" "$LOCKFILE" "$BW_CONFIG_HOME"
+  rbw_cleanup_account "$ACCOUNT"
+  rm -f "$LOCKFILE"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]

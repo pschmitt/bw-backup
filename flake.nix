@@ -1,10 +1,20 @@
 {
   description = "Nix flake packaging bw-backup and bw-sync with a NixOS module";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    rbw = {
+      url = "github:pschmitt/rbw";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      rbw,
+    }:
     let
       systems = [
         "x86_64-linux"
@@ -17,7 +27,10 @@
           f (
             import nixpkgs {
               inherit system;
-              overlays = [ self.overlays.default ];
+              overlays = [
+                rbw.overlays.default
+                self.overlays.default
+              ];
             }
           )
         );

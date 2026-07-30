@@ -4,14 +4,39 @@ cd "$(cd "$(dirname "$0")" >/dev/null 2>&1; pwd -P)" || exit 9
 # shellcheck source=./lib.sh
 source lib.sh
 
+RBW_CONFIG_DIR="${HOME:-/root}/.config/rbw"
+RBW_CONFIG_FILE="${RBW_CONFIG_DIR}/config.json"
+
+# Renders one account entry (name/email/base_url) as JSON. rbw's config.json
+# only ever holds this non-secret connection metadata -- master passwords
+# and register API keys stay in env vars, read by bw-backup.sh/bw-sync.sh
+# and piped to `rbw ... --stdin`, never written to disk here.
+account_json() {
+  local name="$1"
+  local email="$2"
+  local base_url="$3"
+
+  jq -nc --arg name "$name" --arg email "$email" --arg base_url "$base_url" \
+    '{name: $name, email: $email} + (if $base_url != "" then {base_url: $base_url} else {} end)'
+}
+
+write_rbw_config() {
+  mkdir -p "$RBW_CONFIG_DIR"
+  jq -sc '{accounts: ., primary_account: .[0].name}' "$@" > "$RBW_CONFIG_FILE"
+}
+
 COMMAND="${1:-backup}"
 if [[ "$COMMAND" == "sync" ]]
 then
   shift
+  write_rbw_config \
+    <(account_json "${SRC_ACCOUNT:-source}" "${SRC_ACCOUNT_EMAIL:-}" "${SRC_ACCOUNT_BASE_URL:-}") \
+    <(account_json "${DEST_ACCOUNT:-destination}" "${DEST_ACCOUNT_EMAIL:-}" "${DEST_ACCOUNT_BASE_URL:-}")
   exec /usr/local/bin/bw-sync "$@"
 elif [[ "$COMMAND" == "backup" ]]
 then
   shift
+  write_rbw_config <(account_json "${ACCOUNT:-backup}" "${ACCOUNT_EMAIL:-}" "${ACCOUNT_BASE_URL:-}")
 else
   echo_error "Unknown command: $COMMAND"
   exit 2

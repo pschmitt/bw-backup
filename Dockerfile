@@ -1,51 +1,46 @@
 # hadolint ignore=DL3007
-FROM alpine:latest AS bw
-# hadolint ignore=DL4006,SC2035,DL3018
-RUN apk add --no-cache ca-certificates curl jq unzip && \
-    BW_URL=$(curl -H "Accept: application/vnd.github+json" \
-      https://api.github.com/repos/bitwarden/clients/releases | \
-      jq -er ' \
-        [.[] | select(.name | test("CLI"))][0] | \
-        .assets[] | select(.name | test("^bw-linux.*.zip")) | \
-        .browser_download_url \
-      ') && \
-    curl -fsSL "$BW_URL" | funzip - > bw && \
-    chmod +x ./bw
+FROM ghcr.io/pschmitt/rbw:latest AS rbw
 
 # hadolint ignore=DL3007
 FROM ubuntu:latest
 # hadolint ignore=DL3008
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      bash ca-certificates cron curl gnupg2 jq python3 && \
+      bash ca-certificates cron curl gnupg2 jq && \
     rm -rf /var/lib/apt/lists/* /etc/cron.*/*
 
-# NOTE bw is dynamically linked!
-COPY --from=bw /bw /usr/local/bin/bw
+COPY --from=rbw /usr/bin/rbw /usr/local/bin/rbw
+COPY --from=rbw /usr/bin/rbw-agent /usr/local/bin/rbw-agent
 COPY bw-backup.sh /usr/local/bin/bw-backup
 COPY bw-sync.sh /usr/local/bin/bw-sync
-COPY bw.py /usr/local/bin/bw.py
 COPY entrypoint.sh /entrypoint.sh
 COPY lib.sh /usr/local/bin/lib.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
 
 VOLUME ["/data"]
-ENV BW_URL=https://bitwarden.com \
-    BW_BACKUP_DIR=/data \
-    BW_CLIENTID="user.xxxx" \
-    BW_CLIENTSECRET="changeme" \
+
+# --- backup (single account) ---
+ENV ACCOUNT=backup \
+    ACCOUNT_EMAIL= \
+    ACCOUNT_BASE_URL= \
     BW_PASSWORD="changeme" \
-    SOURCE_BW_URL= \
-    SOURCE_BW_CLIENTID= \
-    SOURCE_BW_CLIENTSECRET= \
-    SOURCE_BW_PASSWORD= \
-    DEST_BW_URL= \
-    DEST_BW_CLIENTID= \
-    DEST_BW_CLIENTSECRET= \
-    DEST_BW_PASSWORD= \
-    DEST_BW_EMAIL= \
-    DEST_BW_PURGE_VAULT= \
-    ENCRYPTION_PASSPHRASE= \
+    BW_BACKUP_DIR=/data \
     BW_BACKUP_RETENTION=30 \
-    CRON=
+    ENCRYPTION_PASSPHRASE=
+
+# --- sync (source + destination accounts) ---
+ENV SRC_ACCOUNT=source \
+    SRC_ACCOUNT_EMAIL= \
+    SRC_ACCOUNT_BASE_URL= \
+    SRC_BW_PASSWORD= \
+    DEST_ACCOUNT=destination \
+    DEST_ACCOUNT_EMAIL= \
+    DEST_ACCOUNT_BASE_URL= \
+    DEST_BW_PASSWORD= \
+    BW_SYNC_MODE=personal \
+    DEST_BW_PURGE_VAULT= \
+    DEST_BW_ORG= \
+    DEST_BW_COLLECTIONS=
+
+ENV CRON=

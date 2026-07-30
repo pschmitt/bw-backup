@@ -1,18 +1,13 @@
-{ lib
-, stdenvNoCC
-, makeWrapper
-, bash
-, bitwarden-cli
-, coreutils
-, curl
-, findutils
-, gawk
-, gnugrep
-, gnupg
-, gnused
-, gnutar
-, gzip
-, jq
+{
+  lib,
+  stdenvNoCC,
+  makeWrapper,
+  bash,
+  coreutils,
+  curl,
+  findutils,
+  gnupg,
+  rbw,
 }:
 
 stdenvNoCC.mkDerivation {
@@ -36,24 +31,20 @@ stdenvNoCC.mkDerivation {
   postInstall = ''
     patchShebangs "$out/bin"
     wrapProgram "$out/bin/bw-backup" \
-      --prefix PATH : ${lib.makeBinPath [
-        bash
-        bitwarden-cli
-        coreutils
-        curl
-        findutils
-        gawk
-        gnugrep
-        gnupg
-        gnused
-        gnutar
-        gzip
-        jq
-      ]}
+      --prefix PATH : ${
+        lib.makeBinPath [
+          bash
+          coreutils
+          curl
+          findutils
+          gnupg
+          rbw
+        ]
+      }
   '';
 
   meta = {
-    description = "Bitwarden/Vaultwarden backup helper";
+    description = "Bitwarden/Vaultwarden backup helper, built on rbw";
     homepage = "https://github.com/pschmitt/bw-backup";
     license = lib.licenses.gpl3Only;
     mainProgram = "bw-backup";

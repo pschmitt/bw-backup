@@ -1,16 +1,12 @@
-{ lib
-, stdenvNoCC
-, makeWrapper
-, bash
-, bitwarden-cli
-, coreutils
-, curl
-, findutils
-, gawk
-, gnugrep
-, gnused
-, jq
-, python3
+{
+  lib,
+  stdenvNoCC,
+  makeWrapper,
+  bash,
+  coreutils,
+  curl,
+  jq,
+  rbw,
 }:
 
 stdenvNoCC.mkDerivation {
@@ -26,7 +22,6 @@ stdenvNoCC.mkDerivation {
     runHook preInstall
 
     install -Dm755 "$src/bw-sync.sh" "$out/bin/bw-sync"
-    install -Dm755 "$src/bw.py" "$out/bin/bw.py"
     install -Dm644 "$src/lib.sh" "$out/bin/lib.sh"
 
     runHook postInstall
@@ -35,22 +30,19 @@ stdenvNoCC.mkDerivation {
   postInstall = ''
     patchShebangs "$out/bin"
     wrapProgram "$out/bin/bw-sync" \
-      --prefix PATH : ${lib.makeBinPath [
-        bash
-        bitwarden-cli
-        coreutils
-        curl
-        findutils
-        gawk
-        gnugrep
-        gnused
-        jq
-        python3
-      ]}
+      --prefix PATH : ${
+        lib.makeBinPath [
+          bash
+          coreutils
+          curl
+          jq
+          rbw
+        ]
+      }
   '';
 
   meta = {
-    description = "Sync Bitwarden/Vaultwarden vaults including attachments";
+    description = "Mirror Bitwarden/Vaultwarden vaults (personal or org collections), built on rbw";
     homepage = "https://github.com/pschmitt/bw-backup";
     license = lib.licenses.gpl3Only;
     mainProgram = "bw-sync";
