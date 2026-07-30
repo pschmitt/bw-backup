@@ -110,6 +110,10 @@ let
     name: checks:
     pkgs.writeShellScript "${name}-register" ''
       set -euo pipefail
+      # rbw spawns rbw-agent via a plain PATH lookup (or $RBW_AGENT if set),
+      # and this script otherwise runs with none of that set up.
+      export PATH="${pkgs.rbw}/bin:$PATH"
+      export RBW_AGENT="${pkgs.rbw}/bin/rbw-agent"
       ${lib.concatStringsSep "\n" checks}
     '';
 
