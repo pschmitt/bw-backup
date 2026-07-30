@@ -1,5 +1,5 @@
-x-bw-base: &bw-base
-  image: ghcr.io/pschmitt/bw-backup:latest
+x-rbw-auto-base: &rbw-auto-base
+  image: ghcr.io/pschmitt/rbw-auto:latest
   build: .
   restart: no
   env_file:
@@ -8,18 +8,18 @@ x-bw-base: &bw-base
     # persistent storage
     - ./data:/data
     # devel
-    - ./bw-backup.sh:/usr/local/bin/bw-backup:ro
-    - ./bw-sync.sh:/usr/local/bin/bw-sync:ro
+    - ./bw-backup.sh:/usr/local/bin/rbw-auto-backup:ro
+    - ./bw-sync.sh:/usr/local/bin/rbw-auto-sync:ro
     - ./entrypoint.sh:/entrypoint.sh:ro
     - ./lib.sh:/usr/local/bin/lib.sh:ro
 
 services:
-  bw-backup:
-    <<: *bw-base
-    container_name: bw-backup
+  rbw-auto-backup:
+    <<: *rbw-auto-base
+    container_name: rbw-auto-backup
     command: backup
 
-  bw-backup-sync:
-    <<: *bw-base
-    container_name: bw-backup-sync
+  rbw-auto-sync:
+    <<: *rbw-auto-base
+    container_name: rbw-auto-sync
     command: sync

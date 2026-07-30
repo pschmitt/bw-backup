@@ -9,7 +9,7 @@ usage() {
 }
 
 main() {
-  local compose_service="bw-backup" debug
+  local compose_service="rbw-auto-backup" debug
 
   while [[ -n "$*" ]]
   do
@@ -34,11 +34,11 @@ main() {
 
   case "$1" in
     backup|bak|--back*|--bak*)
-      compose_service="bw-backup"
+      compose_service="rbw-auto-backup"
       shift
       ;;
     sync|s|--sync)
-      compose_service="bw-backup-sync"
+      compose_service="rbw-auto-sync"
       shift
       ;;
     *)

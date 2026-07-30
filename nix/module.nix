@@ -8,8 +8,8 @@
 let
   inherit (lib) mkOption types;
 
-  backupCfg = config.services.bw-backup;
-  syncCfg = config.services.bw-sync;
+  backupCfg = config.services.rbw-auto-backup;
+  syncCfg = config.services.rbw-auto-sync;
 
   # systemd's `Environment=` word-splits unquoted values on whitespace, so a
   # value containing a space (an org/collection name, say) silently gets
@@ -165,7 +165,7 @@ let
     '';
 
   # Each named backup/sync job gets its own independent systemd
-  # service+timer (bw-backup-<name>/bw-sync-<name>), the way
+  # service+timer (rbw-auto-backup-<name>/rbw-auto-sync-<name>), the way
   # `services.restic.backups.<name>` works -- rather than one fixed job (or,
   # for sync, one fixed job plus a single hardcoded "collections" variant).
   # Jobs of the same kind still share one system user/group (and therefore
@@ -402,12 +402,12 @@ let
 in
 {
   options = {
-    services.bw-backup = {
+    services.rbw-auto-backup = {
       package = mkOption {
         type = types.package;
-        default = pkgs.callPackage ./bw-backup.nix { };
-        defaultText = lib.literalExpression "pkgs.callPackage ./bw-backup.nix { }";
-        description = "Package providing the bw-backup script.";
+        default = pkgs.callPackage ./rbw-auto-backup.nix { };
+        defaultText = lib.literalExpression "pkgs.callPackage ./rbw-auto-backup.nix { }";
+        description = "Package providing the rbw-auto-backup script.";
       };
 
       user = mkOption {
@@ -427,26 +427,27 @@ in
         default = { };
         description = ''
           Named Bitwarden backup jobs. Each gets its own independent
-          systemd service+timer (`bw-backup-<name>`), so different accounts
-          can be backed up on entirely different schedules/retention/paths.
+          systemd service+timer (`rbw-auto-backup-<name>`), so different
+          accounts can be backed up on entirely different
+          schedules/retention/paths.
         '';
         example = lib.literalExpression ''
           {
             personal = {
               account = { name = "personal"; email = "me@example.com"; };
-              environmentFiles = [ config.sops.secrets."bw-backup-personal".path ];
+              environmentFiles = [ config.sops.secrets."rbw-auto-backup-personal".path ];
             };
           }
         '';
       };
     };
 
-    services.bw-sync = {
+    services.rbw-auto-sync = {
       package = mkOption {
         type = types.package;
-        default = pkgs.callPackage ./bw-sync.nix { };
-        defaultText = lib.literalExpression "pkgs.callPackage ./bw-sync.nix { }";
-        description = "Package providing the bw-sync script.";
+        default = pkgs.callPackage ./rbw-auto-sync.nix { };
+        defaultText = lib.literalExpression "pkgs.callPackage ./rbw-auto-sync.nix { }";
+        description = "Package providing the rbw-auto-sync script.";
       };
 
       user = mkOption {
@@ -466,7 +467,7 @@ in
         default = { };
         description = ''
           Named Bitwarden vault-mirror sync jobs. Each gets its own
-          independent systemd service+timer (`bw-sync-<name>`), so
+          independent systemd service+timer (`rbw-auto-sync-<name>`), so
           different account pairs/modes/schedules can run entirely
           independently of one another.
         '';
@@ -476,14 +477,14 @@ in
               sourceAccount = { name = "personal"; email = "me@example.com"; };
               destAccount = { name = "vaultwarden"; email = "me@example.com"; baseUrl = "https://vault.example.com"; };
               purgeDestination = true;
-              environmentFiles = [ config.sops.secrets."bw-sync-personal".path ];
+              environmentFiles = [ config.sops.secrets."rbw-auto-sync-personal".path ];
             };
             org-collections = {
               sourceAccount = { name = "personal"; email = "me@example.com"; };
               destAccount = { name = "vaultwarden"; email = "me@example.com"; baseUrl = "https://vault.example.com"; };
               mode = "collections";
               collections = { org = "Example-Org"; names = [ "Shared" ]; };
-              environmentFiles = [ config.sops.secrets."bw-sync-org-collections".path ];
+              environmentFiles = [ config.sops.secrets."rbw-auto-sync-org-collections".path ];
             };
           }
         '';
@@ -498,16 +499,16 @@ in
           (conflictingAccountNames backupAccountsRaw == [ ])
           && (conflictingAccountNames syncAccountsRaw == [ ]);
         message = ''
-          services.bw-backup/bw-sync: the same rbw account name is used by
-          more than one job with different email/baseUrl/ssoId. All jobs
-          sharing an account name must describe it identically.
+          services.rbw-auto-backup/rbw-auto-sync: the same rbw account name
+          is used by more than one job with different email/baseUrl/ssoId.
+          All jobs sharing an account name must describe it identically.
         '';
       }
     ]
     ++ (lib.mapAttrsToList (name: job: {
       assertion =
         job.mode != "collections" || (job.collections.org != null && job.collections.names != [ ]);
-      message = "services.bw-sync.syncs.${name}: mode = \"collections\" requires collections.org and a non-empty collections.names";
+      message = "services.rbw-auto-sync.syncs.${name}: mode = \"collections\" requires collections.org and a non-empty collections.names";
     }) enabledSyncs);
 
     users.groups = lib.mkMerge [
@@ -569,7 +570,7 @@ in
       services =
         (lib.mapAttrs' (
           name: job:
-          lib.nameValuePair "bw-backup-${name}" {
+          lib.nameValuePair "rbw-auto-backup-${name}" {
             description = "Bitwarden backup (${name})";
             serviceConfig = {
               Type = "oneshot";
@@ -586,21 +587,21 @@ in
                 }
                 // job.environment
               );
-              ExecStartPre = "${mkRegisterScript "bw-backup-${name}" [
+              ExecStartPre = "${mkRegisterScript "rbw-auto-backup-${name}" [
                 (mkRegisterCheck {
                   account = job.account.name;
                   clientIdVar = "BW_BACKUP_REGISTER_CLIENT_ID";
                   clientSecretVar = "BW_BACKUP_REGISTER_CLIENT_SECRET";
                 })
               ]}";
-              ExecStart = "${backupCfg.package}/bin/bw-backup";
-              ExecStopPost = "${mkAgentStopScript "bw-backup-${name}" [ job.account.name ]}";
+              ExecStart = "${backupCfg.package}/bin/rbw-auto-backup";
+              ExecStopPost = "${mkAgentStopScript "rbw-auto-backup-${name}" [ job.account.name ]}";
             };
           }
         ) enabledBackups)
         // (lib.mapAttrs' (
           name: job:
-          lib.nameValuePair "bw-sync-${name}" {
+          lib.nameValuePair "rbw-auto-sync-${name}" {
             description = "Bitwarden vault mirror sync (${name}, ${job.mode})";
             serviceConfig = {
               Type = "oneshot";
@@ -625,7 +626,7 @@ in
                 })
                 // job.environment
               );
-              ExecStartPre = "${mkRegisterScript "bw-sync-${name}" [
+              ExecStartPre = "${mkRegisterScript "rbw-auto-sync-${name}" [
                 (mkRegisterCheck {
                   account = job.sourceAccount.name;
                   clientIdVar = "SRC_REGISTER_CLIENT_ID";
@@ -637,8 +638,8 @@ in
                   clientSecretVar = "DEST_REGISTER_CLIENT_SECRET";
                 })
               ]}";
-              ExecStart = "${syncCfg.package}/bin/bw-sync";
-              ExecStopPost = "${mkAgentStopScript "bw-sync-${name}" [
+              ExecStart = "${syncCfg.package}/bin/rbw-auto-sync";
+              ExecStopPost = "${mkAgentStopScript "rbw-auto-sync-${name}" [
                 job.sourceAccount.name
                 job.destAccount.name
               ]}";
@@ -649,7 +650,7 @@ in
       timers =
         (lib.mapAttrs' (
           name: job:
-          lib.nameValuePair "bw-backup-${name}" {
+          lib.nameValuePair "rbw-auto-backup-${name}" {
             description = "Run Bitwarden backup (${name})";
             wantedBy = [ "timers.target" ];
             timerConfig = {
@@ -660,7 +661,7 @@ in
         ) enabledBackups)
         // (lib.mapAttrs' (
           name: job:
-          lib.nameValuePair "bw-sync-${name}" {
+          lib.nameValuePair "rbw-auto-sync-${name}" {
             description = "Run Bitwarden vault mirror sync (${name})";
             wantedBy = [ "timers.target" ];
             timerConfig = {
@@ -677,14 +678,14 @@ in
         lib.mkIf job.monit.enable (
           let
             lastRunCheck = mkLastRunCheck {
-              name = "bw-backup-${name}-last-run";
+              name = "rbw-auto-backup-${name}-last-run";
               label = "backup (${name})";
               file = "${job.backupPath}/LAST_BACKUP";
               inherit (job.monit) thresholdSeconds;
             };
           in
           lib.mkAfter ''
-            check program "bw-backup-${name}" with path "${lastRunCheck}"
+            check program "rbw-auto-backup-${name}" with path "${lastRunCheck}"
               group backup
               every 2 cycles
               if status > 0 then alert
@@ -696,14 +697,14 @@ in
         lib.mkIf job.monit.enable (
           let
             lastRunCheck = mkLastRunCheck {
-              name = "bw-sync-${name}-last-run";
+              name = "rbw-auto-sync-${name}-last-run";
               label = "sync (${name})";
               file = "${job.workDir}/LAST_SYNC";
               inherit (job.monit) thresholdSeconds;
             };
           in
           lib.mkAfter ''
-            check program "bw-sync-${name}" with path "${lastRunCheck}"
+            check program "rbw-auto-sync-${name}" with path "${lastRunCheck}"
               group sync
               every 2 cycles
               if status > 0 then alert

@@ -5,13 +5,14 @@
   bash,
   coreutils,
   curl,
-  jq,
+  findutils,
+  gnupg,
   oath-toolkit,
   rbw,
 }:
 
 stdenvNoCC.mkDerivation {
-  pname = "bw-sync";
+  pname = "rbw-auto-backup";
   version = "unstable-2024-09-11";
   src = ../.;
 
@@ -22,7 +23,7 @@ stdenvNoCC.mkDerivation {
   installPhase = ''
     runHook preInstall
 
-    install -Dm755 "$src/bw-sync.sh" "$out/bin/bw-sync"
+    install -Dm755 "$src/bw-backup.sh" "$out/bin/rbw-auto-backup"
     install -Dm644 "$src/lib.sh" "$out/bin/lib.sh"
 
     runHook postInstall
@@ -30,13 +31,14 @@ stdenvNoCC.mkDerivation {
 
   postInstall = ''
     patchShebangs "$out/bin"
-    wrapProgram "$out/bin/bw-sync" \
+    wrapProgram "$out/bin/rbw-auto-backup" \
       --prefix PATH : ${
         lib.makeBinPath [
           bash
           coreutils
           curl
-          jq
+          findutils
+          gnupg
           oath-toolkit
           rbw
         ]
@@ -44,10 +46,10 @@ stdenvNoCC.mkDerivation {
   '';
 
   meta = {
-    description = "Mirror Bitwarden/Vaultwarden vaults (personal or org collections), built on rbw";
-    homepage = "https://github.com/pschmitt/bw-backup";
+    description = "Bitwarden/Vaultwarden backup helper, built on rbw";
+    homepage = "https://github.com/pschmitt/rbw-auto";
     license = lib.licenses.gpl3Only;
-    mainProgram = "bw-sync";
+    mainProgram = "rbw-auto-backup";
     platforms = lib.platforms.unix;
   };
 }

@@ -420,3 +420,32 @@ config.json all confirmed by inspecting the build output directly.
         backups. `pgrep -x rbw-agent` showed no lingering process after
         any of the three runs, confirming the `ExecStopPost` agent-stop
         fix works in practice, not just in the module's own logic.
+
+## 14. Rename: bw-backup -> rbw-auto (repo, packages, NixOS module, Docker image)
+
+46. [x] Renamed the whole project from "bw-backup" to "rbw-auto" for
+        clearer branding (this is squarely an rbw companion tool, not a
+        generic "backup" utility). Scope: GitHub repo, local checkout,
+        Nix package/output names (`bw-backup`/`bw-sync` ->
+        `rbw-auto-backup`/`rbw-auto-sync`, files renamed to match),
+        NixOS module option namespace (`services.bw-backup`/
+        `services.bw-sync` -> `services.rbw-auto-backup`/
+        `services.rbw-auto-sync`) and generated systemd unit prefixes
+        (`bw-backup-<name>`/`bw-sync-<name>` ->
+        `rbw-auto-backup-<name>`/`rbw-auto-sync-<name>`), Docker image
+        (`ghcr.io/pschmitt/bw-backup` -> `ghcr.io/pschmitt/rbw-auto`,
+        derived automatically from the GitHub repo name in
+        `.github/workflows/build.yaml` -- no change needed there),
+        in-container binary names, docker-compose service names, and
+        `run.sh`'s dispatch.
+        Deliberately *not* renamed: the underlying script filenames
+        (`bw-backup.sh`/`bw-sync.sh`/`lib.sh` -- internal implementation
+        detail, nix/Docker just install/copy them under the new public
+        binary name) and the default Unix system user/group names
+        (`bw-backup`/`bw-sync`, and the `backupPath`/`workDir` defaults
+        tied to their home dirs) -- renaming actual Unix accounts would
+        orphan existing home directories/data on rofl-10 and force a
+        third disruptive migration of the same subsystem in one
+        session, for a purely cosmetic gain nobody asked for.
+        Env var names (`BW_PASSWORD`, `SRC_ACCOUNT`, etc.) are unchanged
+        too -- not part of the "bw-backup" branding, just descriptive.

@@ -1,5 +1,5 @@
 {
-  description = "Nix flake packaging bw-backup and bw-sync with a NixOS module";
+  description = "Nix flake packaging rbw-auto-backup and rbw-auto-sync with a NixOS module";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -37,13 +37,13 @@
     in
     {
       overlays.default = final: prev: {
-        bw-backup = final.callPackage ./nix/bw-backup.nix { };
-        bw-sync = final.callPackage ./nix/bw-sync.nix { };
+        rbw-auto-backup = final.callPackage ./nix/rbw-auto-backup.nix { };
+        rbw-auto-sync = final.callPackage ./nix/rbw-auto-sync.nix { };
       };
 
       packages = forAllSystems (pkgs: {
-        inherit (pkgs) bw-backup bw-sync;
-        default = pkgs.bw-backup;
+        inherit (pkgs) rbw-auto-backup rbw-auto-sync;
+        default = pkgs.rbw-auto-backup;
       });
 
       nixosModules.default = import ./nix/module.nix;

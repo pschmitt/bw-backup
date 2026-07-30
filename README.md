@@ -1,4 +1,4 @@
-# bw-backup
+# rbw-auto
 
 Backup and sync helpers for Bitwarden/Vaultwarden, built on top of
 [rbw](https://github.com/pschmitt/rbw) (specifically
@@ -39,7 +39,7 @@ podman run -it --rm \
   -e ENCRYPTION_PASSPHRASE=mySecret1234 \
   -e BW_BACKUP_RETENTION=30 \
   -e CRON="0 23 * * *" \
-  ghcr.io/pschmitt/bw-backup:latest
+  ghcr.io/pschmitt/rbw-auto:latest
 ```
 
 - `ACCOUNT` (optional, default: `backup`): the rbw account name.
@@ -81,7 +81,7 @@ podman run -it --rm \
   -e DEST_ACCOUNT_EMAIL=you@vaultwarden.example \
   -e DEST_ACCOUNT_BASE_URL=https://vault.example.com \
   -e DEST_BW_PASSWORD=xxxx \
-  ghcr.io/pschmitt/bw-backup:latest sync
+  ghcr.io/pschmitt/rbw-auto:latest sync
 ```
 
 - `SRC_ACCOUNT`/`DEST_ACCOUNT` (optional, default: `source`/`destination`):
@@ -123,11 +123,12 @@ podman run -it --rm \
 
 ## NixOS module
 
-`flake.nix` exports `nixosModules.default`, providing `services.bw-backup`
-and `services.bw-sync`. Both are collections of independent, named jobs --
-`services.bw-backup.backups.<name>` and `services.bw-sync.syncs.<name>` --
-the same way `services.restic.backups.<name>` works: each named job gets
-its own systemd service+timer (`bw-backup-<name>`/`bw-sync-<name>`), own
+`flake.nix` exports `nixosModules.default`, providing
+`services.rbw-auto-backup` and `services.rbw-auto-sync`. Both are
+collections of independent, named jobs -- `services.rbw-auto-backup.backups.<name>`
+and `services.rbw-auto-sync.syncs.<name>` -- the same way
+`services.restic.backups.<name>` works: each named job gets its own systemd
+service+timer (`rbw-auto-backup-<name>`/`rbw-auto-sync-<name>`), own
 schedule, own accounts, own Monit check, and can be enabled/disabled
 independently. Jobs of the same kind (all backups, or all syncs) share one
 system user/group and one declaratively-rendered `rbw` `config.json`
@@ -142,15 +143,15 @@ lingering one causes `systemd` to log a "left-over process in control
 group" warning on the job's next run.
 
 ```nix
-services.bw-backup.backups.personal = {
+services.rbw-auto-backup.backups.personal = {
   account = {
     name = "personal";
     email = "me@example.com";
   };
-  environmentFiles = [ config.sops.secrets."bw-backup-personal".path ];
+  environmentFiles = [ config.sops.secrets."rbw-auto-backup-personal".path ];
 };
 
-services.bw-sync.syncs.personal = {
+services.rbw-auto-sync.syncs.personal = {
   sourceAccount = {
     name = "personal";
     email = "me@example.com";
@@ -161,10 +162,10 @@ services.bw-sync.syncs.personal = {
     baseUrl = "https://vault.example.com";
   };
   purgeDestination = true;
-  environmentFiles = [ config.sops.secrets."bw-sync-personal".path ];
+  environmentFiles = [ config.sops.secrets."rbw-auto-sync-personal".path ];
 };
 
-services.bw-sync.syncs.org-collections = {
+services.rbw-auto-sync.syncs.org-collections = {
   sourceAccount = {
     name = "personal";
     email = "me@example.com";
@@ -179,7 +180,7 @@ services.bw-sync.syncs.org-collections = {
     org = "Example-Org";
     names = [ "Shared" ];
   };
-  environmentFiles = [ config.sops.secrets."bw-sync-org-collections".path ];
+  environmentFiles = [ config.sops.secrets."rbw-auto-sync-org-collections".path ];
 };
 ```
 

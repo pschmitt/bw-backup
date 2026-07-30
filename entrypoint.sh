@@ -32,7 +32,7 @@ then
   write_rbw_config \
     <(account_json "${SRC_ACCOUNT:-source}" "${SRC_ACCOUNT_EMAIL:-}" "${SRC_ACCOUNT_BASE_URL:-}") \
     <(account_json "${DEST_ACCOUNT:-destination}" "${DEST_ACCOUNT_EMAIL:-}" "${DEST_ACCOUNT_BASE_URL:-}")
-  exec /usr/local/bin/bw-sync "$@"
+  exec /usr/local/bin/rbw-auto-sync "$@"
 elif [[ "$COMMAND" == "backup" ]]
 then
   shift
@@ -45,7 +45,7 @@ fi
 # oneshot mode
 if [[ -z "$CRON" ]]
 then
-  exec /usr/local/bin/bw-backup "$@"
+  exec /usr/local/bin/rbw-auto-backup "$@"
 fi
 
 forward_signal() {
@@ -67,13 +67,13 @@ cat <<EOF > /etc/crontab
 SHELL=/bin/bash
 BASH_ENV=/etc/environment
 
-$CRON $USER /usr/local/bin/bw-backup >/proc/1/fd/1 2>/proc/1/fd/2
+$CRON $USER /usr/local/bin/rbw-auto-backup >/proc/1/fd/1 2>/proc/1/fd/2
 EOF
 
 if [[ -n "$START_RIGHT_NOW" ]]
 then
   echo_info "Running backup right away! cron will take over after"
-  /usr/local/bin/bw-backup "$@"
+  /usr/local/bin/rbw-auto-backup "$@"
 fi
 
 echo_info "Starting cron"
