@@ -449,3 +449,29 @@ config.json all confirmed by inspecting the build output directly.
         session, for a purely cosmetic gain nobody asked for.
         Env var names (`BW_PASSWORD`, `SRC_ACCOUNT`, etc.) are unchanged
         too -- not part of the "bw-backup" branding, just descriptive.
+
+47. [x] GitHub repo renamed (`gh repo rename rbw-auto --repo pschmitt/bw-backup`,
+        which auto-redirects the old clone/web URLs), local checkout
+        directory renamed (`bw-backup.git` -> `rbw-auto.git`) and git
+        remote URL updated to match. Repo description updated too.
+        Verified `nix flake check` passes and both packages
+        (`rbw-auto-backup`/`rbw-auto-sync`) build and run correctly
+        (wrapped binaries invoke under their new names) from the
+        renamed checkout before touching anything downstream.
+48. [x] Downstream (nixos-config.git): renamed the flake input
+        (`bw-backup` -> `rbw-auto`, url updated) and every reference to
+        the module's option namespace/generated unit names. Redeployed
+        to rofl-10 and re-ran all three jobs under their new unit names
+        (`rbw-auto-sync-org-collections`, `rbw-auto-sync-personal`,
+        `rbw-auto-backup-personal`) -- all three succeeded
+        (`Result=success`), `rbw-agent` confirmed terminated after each,
+        and the old unit names (`bw-backup-personal`,
+        `bw-sync-personal`, `bw-sync-org-collections`) are gone
+        entirely from `systemctl list-units --all`, confirming NixOS
+        cleanly removed them on switch rather than leaving orphans.
+        One transient `rbw login: ... api request returned error: 500`
+        from bitwarden.com hit the backup job's first attempt --
+        unrelated to the rename, resolved on a plain retry (third time
+        this exact transient error has shown up this session; worth
+        keeping in mind if it becomes frequent enough to need
+        retry-with-backoff in the scripts themselves, but not yet).
