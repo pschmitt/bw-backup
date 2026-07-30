@@ -6,11 +6,10 @@
 }:
 
 let
-  inherit (lib) mkOption mkEnableOption types;
+  inherit (lib) mkOption types;
 
   backupCfg = config.services.bw-backup;
   syncCfg = config.services.bw-sync;
-  collectionsCfg = syncCfg.collections;
 
   # systemd's `Environment=` word-splits unquoted values on whitespace, so a
   # value containing a space (an org/collection name, say) silently gets
@@ -18,13 +17,6 @@ let
   # not do this quoting for us. None of this module's values ever contain a
   # literal `"`, so plain wrapping (no embedded-quote escaping) is enough.
   envList = env: lib.mapAttrsToList (n: v: ''${n}="${toString v}"'') env;
-
-  backupDir = backupCfg.backupPath;
-  syncDir = syncCfg.workDir;
-  collectionsDir = collectionsCfg.workDir;
-
-  ensureBackupUser = backupCfg.enable;
-  ensureSyncUser = syncCfg.enable || collectionsCfg.enable;
 
   # rbw account config.json only ever needs non-secret connection metadata
   # (name/email/base_url/sso_id) -- the master password and, for
@@ -122,26 +114,22 @@ let
       ${lib.concatStringsSep "\n" checks}
     '';
 
-  backupRegisterScript = mkRegisterScript "bw-backup" [
-    (mkRegisterCheck {
-      account = backupCfg.account.name;
-      clientIdVar = "BW_BACKUP_REGISTER_CLIENT_ID";
-      clientSecretVar = "BW_BACKUP_REGISTER_CLIENT_SECRET";
-    })
-  ];
-
-  syncRegisterScript = mkRegisterScript "bw-sync" [
-    (mkRegisterCheck {
-      account = syncCfg.sourceAccount.name;
-      clientIdVar = "SRC_REGISTER_CLIENT_ID";
-      clientSecretVar = "SRC_REGISTER_CLIENT_SECRET";
-    })
-    (mkRegisterCheck {
-      account = syncCfg.destAccount.name;
-      clientIdVar = "DEST_REGISTER_CLIENT_ID";
-      clientSecretVar = "DEST_REGISTER_CLIENT_SECRET";
-    })
-  ];
+  # A oneshot job has no business keeping rbw-agent alive after it exits --
+  # forcibly stops it for every account this job touched, tolerating an
+  # account that was never unlocked (nothing to stop) or an already-dead
+  # agent. Run via ExecStopPost, so it fires even if the job failed or was
+  # killed (unlike a script-internal EXIT trap, which a SIGKILL bypasses).
+  mkAgentStopScript =
+    name: accounts:
+    pkgs.writeShellScript "${name}-agent-stop" ''
+      export PATH="${pkgs.rbw}/bin:$PATH"
+      export RBW_AGENT="${pkgs.rbw}/bin/rbw-agent"
+      ${lib.concatMapStringsSep "\n" (
+        account:
+        "${pkgs.rbw}/bin/rbw --account ${lib.escapeShellArg account} stop-agent &>/dev/null || true"
+      ) accounts}
+      exit 0
+    '';
 
   mkLastRunCheck =
     {
@@ -175,6 +163,242 @@ let
         exit 0
       fi
     '';
+
+  # Each named backup/sync job gets its own independent systemd
+  # service+timer (bw-backup-<name>/bw-sync-<name>), the way
+  # `services.restic.backups.<name>` works -- rather than one fixed job (or,
+  # for sync, one fixed job plus a single hardcoded "collections" variant).
+  # Jobs of the same kind still share one system user/group (and therefore
+  # one rbw config.json listing every account any of that kind's enabled
+  # jobs use) since rbw's own multi-account support already keys entirely
+  # off --account; there's no need for one Unix user per job.
+  backupJobModule = types.submodule (
+    { name, ... }:
+    {
+      options = {
+        enable = mkOption {
+          type = types.bool;
+          default = true;
+          description = "Enable this backup job.";
+        };
+
+        account = mkOption {
+          type = accountModule;
+          description = "The rbw account to back up.";
+          example = lib.literalExpression ''
+            {
+              name = "personal";
+              email = "me@example.com";
+            }
+          '';
+        };
+
+        backupPath = mkOption {
+          type = types.str;
+          default = "/var/lib/bw-backup/${name}";
+          description = "Directory where this job's backups are written.";
+        };
+
+        retention = mkOption {
+          type = types.int;
+          default = 30;
+          description = "Number of backups to keep (0 disables rotation).";
+        };
+
+        schedule = mkOption {
+          type = types.str;
+          default = "daily";
+          description = "systemd OnCalendar expression for this job.";
+          example = "00:30";
+        };
+
+        environmentFiles = mkOption {
+          type = types.listOf types.path;
+          default = [ ];
+          description = ''
+            Environment files to source for this job. Use this to provide
+            BW_PASSWORD (the account's master password), ENCRYPTION_PASSPHRASE,
+            HEALTHCHECK_URL, and -- if `account` targets the official
+            bitwarden.com and hasn't been registered yet --
+            BW_BACKUP_REGISTER_CLIENT_ID/BW_BACKUP_REGISTER_CLIENT_SECRET
+            (the account's personal API key, used once to run `rbw register`
+            non-interactively).
+          '';
+        };
+
+        environment = mkOption {
+          type = types.attrsOf types.str;
+          default = { };
+          description = "Extra environment variables passed to this job.";
+        };
+
+        monit = {
+          enable = mkOption {
+            type = types.bool;
+            default = true;
+            description = "Enable a Monit check for this job's backup freshness.";
+          };
+
+          thresholdSeconds = mkOption {
+            type = types.int;
+            default = 86400;
+            description = "Maximum allowed age of the last backup timestamp before Monit alerts.";
+          };
+        };
+      };
+    }
+  );
+
+  syncJobModule = types.submodule (
+    { name, ... }:
+    {
+      options = {
+        enable = mkOption {
+          type = types.bool;
+          default = true;
+          description = "Enable this sync job.";
+        };
+
+        sourceAccount = mkOption {
+          type = accountModule;
+          description = "The rbw account to mirror from.";
+        };
+
+        destAccount = mkOption {
+          type = accountModule;
+          description = "The rbw account to mirror into.";
+        };
+
+        mode = mkOption {
+          type = types.enum [
+            "personal"
+            "collections"
+          ];
+          default = "personal";
+          description = ''
+            "personal": 1:1 mirror of sourceAccount's whole vault into
+            destAccount's personal vault.
+            "collections": mirror into one or more destAccount organization
+            collections (see the `collections` option).
+          '';
+        };
+
+        purgeDestination = mkOption {
+          type = types.bool;
+          default = false;
+          description = ''
+            "personal" mode only: wipe the destination's personal vault
+            before importing (via `rbw mirror --purge-dest`, the same
+            server-side purge endpoint `rbw purge-vault` uses). Entries
+            assigned to an organization collection are never touched by
+            this, regardless.
+          '';
+        };
+
+        collections = {
+          org = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            description = ''
+              "collections" mode only: name of the destination organization
+              to mirror into. Created automatically (under destAccount) if
+              it doesn't already exist.
+            '';
+            example = "Example-Org";
+          };
+
+          names = mkOption {
+            type = types.listOf types.nonEmptyStr;
+            default = [ ];
+            description = ''
+              "collections" mode only: names of the collections (within
+              `org`) to mirror into. A name matching an existing
+              sourceAccount collection gets a scoped 1:1 mirror of just that
+              collection; a name with no source-side match gets a full
+              mirror of the entire source vault instead. Any destination
+              collection that doesn't already exist is created
+              automatically.
+            '';
+            example = [
+              "default"
+              "Some Other Collection"
+            ];
+          };
+        };
+
+        period = mkOption {
+          type = types.str;
+          default = "daily";
+          description = "systemd OnCalendar expression for this job.";
+        };
+
+        workDir = mkOption {
+          type = types.str;
+          default = "/var/lib/bw-sync/${name}";
+          description = "Persistent work directory for this job's state (LAST_SYNC marker).";
+        };
+
+        environmentFiles = mkOption {
+          type = types.listOf types.path;
+          default = [ ];
+          description = ''
+            Environment files to source for this job. Use this to provide
+            SRC_BW_PASSWORD/DEST_BW_PASSWORD (the two accounts' master
+            passwords), HEALTHCHECK_URL, and -- for whichever account
+            targets the official bitwarden.com and hasn't been registered
+            yet -- SRC_REGISTER_CLIENT_ID/SRC_REGISTER_CLIENT_SECRET and/or
+            DEST_REGISTER_CLIENT_ID/DEST_REGISTER_CLIENT_SECRET.
+          '';
+        };
+
+        environment = mkOption {
+          type = types.attrsOf types.str;
+          default = { };
+          description = "Extra environment variables passed to this job.";
+        };
+
+        monit = {
+          enable = mkOption {
+            type = types.bool;
+            default = false;
+            description = "Enable a Monit check for this job's sync freshness.";
+          };
+
+          thresholdSeconds = mkOption {
+            type = types.int;
+            default = 86400;
+            description = "Maximum allowed age of the last sync timestamp before Monit alerts.";
+          };
+        };
+      };
+    }
+  );
+
+  enabledBackups = lib.filterAttrs (_: b: b.enable) backupCfg.backups;
+  enabledSyncs = lib.filterAttrs (_: s: s.enable) syncCfg.syncs;
+
+  anyBackups = enabledBackups != { };
+  anySyncs = enabledSyncs != { };
+
+  backupAccountsRaw = lib.mapAttrsToList (_: b: b.account) enabledBackups;
+  syncAccountsRaw = lib.concatMap (s: [
+    s.sourceAccount
+    s.destAccount
+  ]) (lib.attrValues enabledSyncs);
+
+  # Every job of a given kind shares one rbw config.json, so the same
+  # account name used by two jobs must describe the exact same account --
+  # otherwise whichever job's entry happens to win would silently point the
+  # other job at the wrong email/server.
+  conflictingAccountNames =
+    accounts:
+    let
+      grouped = lib.groupBy (a: a.name) accounts;
+    in
+    lib.attrNames (lib.filterAttrs (_: accs: lib.length (lib.unique accs) > 1) grouped);
+
+  backupAccounts = lib.unique backupAccountsRaw;
+  syncAccounts = lib.unique syncAccountsRaw;
 in
 {
   options = {
@@ -184,23 +408,6 @@ in
         default = pkgs.callPackage ./bw-backup.nix { };
         defaultText = lib.literalExpression "pkgs.callPackage ./bw-backup.nix { }";
         description = "Package providing the bw-backup script.";
-      };
-
-      enable = mkOption {
-        type = types.bool;
-        default = false;
-        description = "Enable periodic Bitwarden backups.";
-      };
-
-      account = mkOption {
-        type = accountModule;
-        description = "The rbw account to back up.";
-        example = lib.literalExpression ''
-          {
-            name = "backup";
-            email = "me@example.com";
-          }
-        '';
       };
 
       user = mkOption {
@@ -215,57 +422,22 @@ in
         description = "System group used to run backup jobs.";
       };
 
-      backupPath = mkOption {
-        type = types.str;
-        default = "/var/lib/bw-backup/backups";
-        description = "Directory where backups are written.";
-      };
-
-      retention = mkOption {
-        type = types.int;
-        default = 30;
-        description = "Number of backups to keep (0 disables rotation).";
-      };
-
-      schedule = mkOption {
-        type = types.str;
-        default = "daily";
-        description = "systemd OnCalendar expression for backups.";
-        example = "00:30";
-      };
-
-      environmentFiles = mkOption {
-        type = types.listOf types.path;
-        default = [ ];
-        description = ''
-          Environment files to source for bw-backup. Use this to provide
-          BW_PASSWORD (the account's master password), ENCRYPTION_PASSPHRASE,
-          HEALTHCHECK_URL, and -- if `account` targets the official
-          bitwarden.com and hasn't been registered yet --
-          BW_BACKUP_REGISTER_CLIENT_ID/BW_BACKUP_REGISTER_CLIENT_SECRET
-          (the account's personal API key, used once to run `rbw register`
-          non-interactively).
-        '';
-      };
-
-      environment = mkOption {
-        type = types.attrsOf types.str;
+      backups = mkOption {
+        type = types.attrsOf backupJobModule;
         default = { };
-        description = "Extra environment variables passed to bw-backup.";
-      };
-
-      monit = {
-        enable = mkOption {
-          type = types.bool;
-          default = true;
-          description = "Enable Monit check for backup freshness.";
-        };
-
-        thresholdSeconds = mkOption {
-          type = types.int;
-          default = 86400;
-          description = "Maximum allowed age of the last backup timestamp before Monit alerts.";
-        };
+        description = ''
+          Named Bitwarden backup jobs. Each gets its own independent
+          systemd service+timer (`bw-backup-<name>`), so different accounts
+          can be backed up on entirely different schedules/retention/paths.
+        '';
+        example = lib.literalExpression ''
+          {
+            personal = {
+              account = { name = "personal"; email = "me@example.com"; };
+              environmentFiles = [ config.sops.secrets."bw-backup-personal".path ];
+            };
+          }
+        '';
       };
     };
 
@@ -277,37 +449,10 @@ in
         description = "Package providing the bw-sync script.";
       };
 
-      enable = mkOption {
-        type = types.bool;
-        default = false;
-        description = "Enable the 1:1 personal-vault mirror sync job.";
-      };
-
-      sourceAccount = mkOption {
-        type = accountModule;
-        description = "The rbw account to mirror from.";
-      };
-
-      destAccount = mkOption {
-        type = accountModule;
-        description = "The rbw account to mirror into.";
-      };
-
-      purgeDestination = mkOption {
-        type = types.bool;
-        default = false;
-        description = ''
-          Wipe the destination's personal vault before importing (via `rbw
-          mirror --purge-dest`, the same server-side purge endpoint `rbw
-          purge-vault` uses). Entries assigned to an organization
-          collection are never touched by this, regardless.
-        '';
-      };
-
       user = mkOption {
         type = types.str;
         default = "bw-sync";
-        description = "System user used to run sync jobs (shared by the personal and collections jobs).";
+        description = "System user used to run sync jobs.";
       };
 
       group = mkOption {
@@ -316,141 +461,62 @@ in
         description = "System group used to run sync jobs.";
       };
 
-      period = mkOption {
-        type = types.str;
-        default = "daily";
-        description = "systemd OnCalendar expression for the personal sync job.";
-      };
-
-      environmentFiles = mkOption {
-        type = types.listOf types.path;
-        default = [ ];
-        description = ''
-          Environment files to source for both the personal and collections
-          sync jobs. Use this to provide SRC_BW_PASSWORD/DEST_BW_PASSWORD
-          (the two accounts' master passwords), HEALTHCHECK_URL, and --
-          for whichever account targets the official bitwarden.com and
-          hasn't been registered yet --
-          SRC_REGISTER_CLIENT_ID/SRC_REGISTER_CLIENT_SECRET and/or
-          DEST_REGISTER_CLIENT_ID/DEST_REGISTER_CLIENT_SECRET.
-        '';
-      };
-
-      workDir = mkOption {
-        type = types.str;
-        default = "/var/lib/bw-sync/data";
-        description = "Persistent work directory for the personal sync job's state (LAST_SYNC marker).";
-      };
-
-      environment = mkOption {
-        type = types.attrsOf types.str;
+      syncs = mkOption {
+        type = types.attrsOf syncJobModule;
         default = { };
-        description = "Extra environment variables passed to both sync jobs.";
-      };
-
-      monit = {
-        enable = mkOption {
-          type = types.bool;
-          default = false;
-          description = "Enable Monit check for personal-sync freshness.";
-        };
-
-        thresholdSeconds = mkOption {
-          type = types.int;
-          default = 86400;
-          description = "Maximum allowed age of the last sync timestamp before Monit alerts.";
-        };
-      };
-
-      collections = {
-        enable = mkEnableOption "mirroring the source vault into one or more destination organization collections";
-
-        org = mkOption {
-          type = types.str;
-          description = ''
-            Name of the destination organization to mirror into. Created
-            automatically (under destAccount) if it doesn't already exist.
-          '';
-          example = "Example-Org";
-        };
-
-        names = mkOption {
-          type = types.listOf types.nonEmptyStr;
-          description = ''
-            Names of the collections (within `org`) to mirror the source
-            vault into. Each collection gets its own full, independent
-            mirror (not a folder/tag split) -- entries removed from the
-            source are also removed from every collection listed here.
-            Any collection that doesn't already exist is created
-            automatically.
-          '';
-          example = [
-            "default"
-            "Some Other Collection"
-          ];
-        };
-
-        period = mkOption {
-          type = types.str;
-          default = "daily";
-          description = "systemd OnCalendar expression for the collections sync job.";
-        };
-
-        workDir = mkOption {
-          type = types.str;
-          default = "/var/lib/bw-sync/collections-data";
-          description = ''
-            Persistent work directory for the collections sync job's state
-            (LAST_SYNC marker) -- kept separate from the personal job's
-            `workDir` so the two jobs' freshness markers can't clobber
-            each other.
-          '';
-        };
-
-        monit = {
-          enable = mkOption {
-            type = types.bool;
-            default = false;
-            description = "Enable Monit check for collections-sync freshness.";
-          };
-
-          thresholdSeconds = mkOption {
-            type = types.int;
-            default = 86400;
-            description = "Maximum allowed age of the last sync timestamp before Monit alerts.";
-          };
-        };
+        description = ''
+          Named Bitwarden vault-mirror sync jobs. Each gets its own
+          independent systemd service+timer (`bw-sync-<name>`), so
+          different account pairs/modes/schedules can run entirely
+          independently of one another.
+        '';
+        example = lib.literalExpression ''
+          {
+            personal = {
+              sourceAccount = { name = "personal"; email = "me@example.com"; };
+              destAccount = { name = "vaultwarden"; email = "me@example.com"; baseUrl = "https://vault.example.com"; };
+              purgeDestination = true;
+              environmentFiles = [ config.sops.secrets."bw-sync-personal".path ];
+            };
+            org-collections = {
+              sourceAccount = { name = "personal"; email = "me@example.com"; };
+              destAccount = { name = "vaultwarden"; email = "me@example.com"; baseUrl = "https://vault.example.com"; };
+              mode = "collections";
+              collections = { org = "Example-Org"; names = [ "Shared" ]; };
+              environmentFiles = [ config.sops.secrets."bw-sync-org-collections".path ];
+            };
+          }
+        '';
       };
     };
   };
 
-  config = lib.mkIf (ensureBackupUser || ensureSyncUser) {
+  config = lib.mkIf (anyBackups || anySyncs) {
     assertions = [
       {
-        assertion = !(backupCfg.monit.enable && !backupCfg.enable);
-        message = "services.bw-backup.monit.enable requires services.bw-backup.enable";
+        assertion =
+          (conflictingAccountNames backupAccountsRaw == [ ])
+          && (conflictingAccountNames syncAccountsRaw == [ ]);
+        message = ''
+          services.bw-backup/bw-sync: the same rbw account name is used by
+          more than one job with different email/baseUrl/ssoId. All jobs
+          sharing an account name must describe it identically.
+        '';
       }
-      {
-        assertion = !(syncCfg.monit.enable && !syncCfg.enable);
-        message = "services.bw-sync.monit.enable requires services.bw-sync.enable";
-      }
-      {
-        assertion = !(collectionsCfg.monit.enable && !collectionsCfg.enable);
-        message = "services.bw-sync.collections.monit.enable requires services.bw-sync.collections.enable";
-      }
-      {
-        assertion = !collectionsCfg.enable || collectionsCfg.names != [ ];
-        message = "services.bw-sync.collections.names must not be empty when services.bw-sync.collections.enable is set";
-      }
-    ];
+    ]
+    ++ (lib.mapAttrsToList (name: job: {
+      assertion =
+        job.mode != "collections" || (job.collections.org != null && job.collections.names != [ ]);
+      message = "services.bw-sync.syncs.${name}: mode = \"collections\" requires collections.org and a non-empty collections.names";
+    }) enabledSyncs);
 
     users.groups = lib.mkMerge [
-      (lib.mkIf ensureBackupUser { ${backupCfg.group} = { }; })
-      (lib.mkIf ensureSyncUser { ${syncCfg.group} = { }; })
+      (lib.mkIf anyBackups { ${backupCfg.group} = { }; })
+      (lib.mkIf anySyncs { ${syncCfg.group} = { }; })
     ];
 
     users.users = lib.mkMerge [
-      (lib.mkIf ensureBackupUser {
+      (lib.mkIf anyBackups {
         ${backupCfg.user} = {
           isSystemUser = true;
           inherit (backupCfg) group;
@@ -458,7 +524,7 @@ in
           createHome = true;
         };
       })
-      (lib.mkIf ensureSyncUser {
+      (lib.mkIf anySyncs {
         ${syncCfg.user} = {
           isSystemUser = true;
           inherit (syncCfg) group;
@@ -469,187 +535,181 @@ in
     ];
 
     systemd = {
-      tmpfiles.rules =
-        (lib.optional ensureBackupUser "Z ${backupDir} 0750 ${backupCfg.user} ${backupCfg.group} -")
-        ++ (lib.optional syncCfg.enable "Z ${syncDir} 0750 ${syncCfg.user} ${syncCfg.group} -")
-        ++ (lib.optional collectionsCfg.enable "Z ${collectionsDir} 0750 ${syncCfg.user} ${syncCfg.group} -")
-        # Ensure parent directory of backupPath exists if it is not inside the user's home
-        ++ (lib.optional (
-          ensureBackupUser && (dirOf backupDir) != config.users.users.${backupCfg.user}.home
-        ) "z ${dirOf backupDir} 0750 ${backupCfg.user} ${backupCfg.group} -")
-        # Ensure parent directory of workDir/collections workDir exists if not inside the user's home
-        ++ (lib.optional (
-          syncCfg.enable && (dirOf syncDir) != config.users.users.${syncCfg.user}.home
-        ) "z ${dirOf syncDir} 0750 ${syncCfg.user} ${syncCfg.group} -")
-        ++ (lib.optional (
-          collectionsCfg.enable && (dirOf collectionsDir) != config.users.users.${syncCfg.user}.home
-        ) "z ${dirOf collectionsDir} 0750 ${syncCfg.user} ${syncCfg.group} -")
-        ++ (lib.optionals ensureBackupUser (rbwConfigTmpfiles {
+      tmpfiles.rules = lib.unique (
+        (lib.mapAttrsToList (
+          _: job: "Z ${job.backupPath} 0750 ${backupCfg.user} ${backupCfg.group} -"
+        ) enabledBackups)
+        ++ (lib.mapAttrsToList (
+          _: job: "Z ${job.workDir} 0750 ${syncCfg.user} ${syncCfg.group} -"
+        ) enabledSyncs)
+        ++ (lib.concatMap (
+          job:
+          lib.optional (
+            dirOf job.backupPath != config.users.users.${backupCfg.user}.home
+          ) "z ${dirOf job.backupPath} 0750 ${backupCfg.user} ${backupCfg.group} -"
+        ) (lib.attrValues enabledBackups))
+        ++ (lib.concatMap (
+          job:
+          lib.optional (
+            dirOf job.workDir != config.users.users.${syncCfg.user}.home
+          ) "z ${dirOf job.workDir} 0750 ${syncCfg.user} ${syncCfg.group} -"
+        ) (lib.attrValues enabledSyncs))
+        ++ (lib.optionals anyBackups (rbwConfigTmpfiles {
           inherit (backupCfg) user group;
           home = config.users.users.${backupCfg.user}.home;
-          accounts = [ backupCfg.account ];
+          accounts = backupAccounts;
         }))
-        ++ (lib.optionals ensureSyncUser (rbwConfigTmpfiles {
+        ++ (lib.optionals anySyncs (rbwConfigTmpfiles {
           inherit (syncCfg) user group;
           home = config.users.users.${syncCfg.user}.home;
-          accounts = [
-            syncCfg.sourceAccount
-            syncCfg.destAccount
-          ];
-        }));
+          accounts = syncAccounts;
+        }))
+      );
 
-      services = {
-        bw-backup = lib.mkIf backupCfg.enable {
-          description = "Bitwarden backup";
-          serviceConfig = {
-            Type = "oneshot";
-            User = backupCfg.user;
-            Group = backupCfg.group;
-            WorkingDirectory = backupDir;
-            ReadWritePaths = [ backupDir ];
-            EnvironmentFile = backupCfg.environmentFiles;
-            Environment = envList (
-              {
-                ACCOUNT = backupCfg.account.name;
-                BW_BACKUP_DIR = backupDir;
-                BW_BACKUP_RETENTION = toString backupCfg.retention;
-              }
-              // backupCfg.environment
-            );
-            ExecStartPre = "${backupRegisterScript}";
-            ExecStart = "${backupCfg.package}/bin/bw-backup";
-          };
-        };
+      services =
+        (lib.mapAttrs' (
+          name: job:
+          lib.nameValuePair "bw-backup-${name}" {
+            description = "Bitwarden backup (${name})";
+            serviceConfig = {
+              Type = "oneshot";
+              User = backupCfg.user;
+              Group = backupCfg.group;
+              WorkingDirectory = job.backupPath;
+              ReadWritePaths = [ job.backupPath ];
+              EnvironmentFile = job.environmentFiles;
+              Environment = envList (
+                {
+                  ACCOUNT = job.account.name;
+                  BW_BACKUP_DIR = job.backupPath;
+                  BW_BACKUP_RETENTION = toString job.retention;
+                }
+                // job.environment
+              );
+              ExecStartPre = "${mkRegisterScript "bw-backup-${name}" [
+                (mkRegisterCheck {
+                  account = job.account.name;
+                  clientIdVar = "BW_BACKUP_REGISTER_CLIENT_ID";
+                  clientSecretVar = "BW_BACKUP_REGISTER_CLIENT_SECRET";
+                })
+              ]}";
+              ExecStart = "${backupCfg.package}/bin/bw-backup";
+              ExecStopPost = "${mkAgentStopScript "bw-backup-${name}" [ job.account.name ]}";
+            };
+          }
+        ) enabledBackups)
+        // (lib.mapAttrs' (
+          name: job:
+          lib.nameValuePair "bw-sync-${name}" {
+            description = "Bitwarden vault mirror sync (${name}, ${job.mode})";
+            serviceConfig = {
+              Type = "oneshot";
+              User = syncCfg.user;
+              Group = syncCfg.group;
+              WorkingDirectory = job.workDir;
+              ReadWritePaths = [ job.workDir ];
+              EnvironmentFile = job.environmentFiles;
+              Environment = envList (
+                {
+                  SRC_ACCOUNT = job.sourceAccount.name;
+                  DEST_ACCOUNT = job.destAccount.name;
+                  WORKDIR = job.workDir;
+                  BW_SYNC_MODE = job.mode;
+                }
+                // (lib.optionalAttrs (job.mode == "personal" && job.purgeDestination) {
+                  DEST_BW_PURGE_VAULT = "1";
+                })
+                // (lib.optionalAttrs (job.mode == "collections") {
+                  DEST_BW_ORG = job.collections.org;
+                  DEST_BW_COLLECTIONS = lib.concatStringsSep "," job.collections.names;
+                })
+                // job.environment
+              );
+              ExecStartPre = "${mkRegisterScript "bw-sync-${name}" [
+                (mkRegisterCheck {
+                  account = job.sourceAccount.name;
+                  clientIdVar = "SRC_REGISTER_CLIENT_ID";
+                  clientSecretVar = "SRC_REGISTER_CLIENT_SECRET";
+                })
+                (mkRegisterCheck {
+                  account = job.destAccount.name;
+                  clientIdVar = "DEST_REGISTER_CLIENT_ID";
+                  clientSecretVar = "DEST_REGISTER_CLIENT_SECRET";
+                })
+              ]}";
+              ExecStart = "${syncCfg.package}/bin/bw-sync";
+              ExecStopPost = "${mkAgentStopScript "bw-sync-${name}" [
+                job.sourceAccount.name
+                job.destAccount.name
+              ]}";
+            };
+          }
+        ) enabledSyncs);
 
-        bw-sync = lib.mkIf syncCfg.enable {
-          description = "Bitwarden personal vault mirror sync";
-          serviceConfig = {
-            Type = "oneshot";
-            User = syncCfg.user;
-            Group = syncCfg.group;
-            WorkingDirectory = syncDir;
-            ReadWritePaths = [ syncDir ];
-            EnvironmentFile = syncCfg.environmentFiles;
-            Environment = envList (
-              syncCfg.environment
-              // {
-                SRC_ACCOUNT = syncCfg.sourceAccount.name;
-                DEST_ACCOUNT = syncCfg.destAccount.name;
-                WORKDIR = syncDir;
-                BW_SYNC_MODE = "personal";
-              }
-              // (lib.optionalAttrs syncCfg.purgeDestination { DEST_BW_PURGE_VAULT = "1"; })
-            );
-            ExecStartPre = "${syncRegisterScript}";
-            ExecStart = "${syncCfg.package}/bin/bw-sync";
-          };
-        };
-
-        bw-sync-collections = lib.mkIf collectionsCfg.enable {
-          description = "Bitwarden organization collections mirror sync";
-          serviceConfig = {
-            Type = "oneshot";
-            User = syncCfg.user;
-            Group = syncCfg.group;
-            WorkingDirectory = collectionsDir;
-            ReadWritePaths = [ collectionsDir ];
-            EnvironmentFile = syncCfg.environmentFiles;
-            Environment = envList (
-              syncCfg.environment
-              // {
-                SRC_ACCOUNT = syncCfg.sourceAccount.name;
-                DEST_ACCOUNT = syncCfg.destAccount.name;
-                WORKDIR = collectionsDir;
-                BW_SYNC_MODE = "collections";
-                DEST_BW_ORG = collectionsCfg.org;
-                DEST_BW_COLLECTIONS = lib.concatStringsSep "," collectionsCfg.names;
-              }
-            );
-            ExecStartPre = "${syncRegisterScript}";
-            ExecStart = "${syncCfg.package}/bin/bw-sync";
-          };
-        };
-      };
-
-      timers = {
-        bw-backup = lib.mkIf backupCfg.enable {
-          description = "Run Bitwarden backup";
-          wantedBy = [ "timers.target" ];
-          timerConfig = {
-            OnCalendar = backupCfg.schedule;
-            Persistent = true;
-          };
-        };
-
-        bw-sync = lib.mkIf syncCfg.enable {
-          description = "Run Bitwarden personal vault mirror sync";
-          wantedBy = [ "timers.target" ];
-          timerConfig = {
-            OnCalendar = syncCfg.period;
-            Persistent = true;
-          };
-        };
-
-        bw-sync-collections = lib.mkIf collectionsCfg.enable {
-          description = "Run Bitwarden organization collections mirror sync";
-          wantedBy = [ "timers.target" ];
-          timerConfig = {
-            OnCalendar = collectionsCfg.period;
-            Persistent = true;
-          };
-        };
-      };
+      timers =
+        (lib.mapAttrs' (
+          name: job:
+          lib.nameValuePair "bw-backup-${name}" {
+            description = "Run Bitwarden backup (${name})";
+            wantedBy = [ "timers.target" ];
+            timerConfig = {
+              OnCalendar = job.schedule;
+              Persistent = true;
+            };
+          }
+        ) enabledBackups)
+        // (lib.mapAttrs' (
+          name: job:
+          lib.nameValuePair "bw-sync-${name}" {
+            description = "Run Bitwarden vault mirror sync (${name})";
+            wantedBy = [ "timers.target" ];
+            timerConfig = {
+              OnCalendar = job.period;
+              Persistent = true;
+            };
+          }
+        ) enabledSyncs);
     };
 
-    services.monit.config = lib.mkMerge [
-      (lib.mkIf (backupCfg.enable && backupCfg.monit.enable) (
-        let
-          lastBackupCheck = mkLastRunCheck {
-            name = "bw-last-backup";
-            label = "backup";
-            file = "${backupDir}/LAST_BACKUP";
-            inherit (backupCfg.monit) thresholdSeconds;
-          };
-        in
-        lib.mkAfter ''
-          check program "bw-backup" with path "${lastBackupCheck}"
-            group backup
-            every 2 cycles
-            if status > 0 then alert
-        ''
-      ))
-      (lib.mkIf (syncCfg.enable && syncCfg.monit.enable) (
-        let
-          lastSyncCheck = mkLastRunCheck {
-            name = "bw-last-sync";
-            label = "sync";
-            file = "${syncDir}/LAST_SYNC";
-            inherit (syncCfg.monit) thresholdSeconds;
-          };
-        in
-        lib.mkAfter ''
-          check program "bw-sync" with path "${lastSyncCheck}"
-            group sync
-            every 2 cycles
-            if status > 0 then alert
-        ''
-      ))
-      (lib.mkIf (collectionsCfg.enable && collectionsCfg.monit.enable) (
-        let
-          lastCollectionsSyncCheck = mkLastRunCheck {
-            name = "bw-last-sync-collections";
-            label = "collections sync";
-            file = "${collectionsDir}/LAST_SYNC";
-            inherit (collectionsCfg.monit) thresholdSeconds;
-          };
-        in
-        lib.mkAfter ''
-          check program "bw-sync-collections" with path "${lastCollectionsSyncCheck}"
-            group sync
-            every 2 cycles
-            if status > 0 then alert
-        ''
-      ))
-    ];
+    services.monit.config = lib.mkMerge (
+      (lib.mapAttrsToList (
+        name: job:
+        lib.mkIf job.monit.enable (
+          let
+            lastRunCheck = mkLastRunCheck {
+              name = "bw-backup-${name}-last-run";
+              label = "backup (${name})";
+              file = "${job.backupPath}/LAST_BACKUP";
+              inherit (job.monit) thresholdSeconds;
+            };
+          in
+          lib.mkAfter ''
+            check program "bw-backup-${name}" with path "${lastRunCheck}"
+              group backup
+              every 2 cycles
+              if status > 0 then alert
+          ''
+        )
+      ) enabledBackups)
+      ++ (lib.mapAttrsToList (
+        name: job:
+        lib.mkIf job.monit.enable (
+          let
+            lastRunCheck = mkLastRunCheck {
+              name = "bw-sync-${name}-last-run";
+              label = "sync (${name})";
+              file = "${job.workDir}/LAST_SYNC";
+              inherit (job.monit) thresholdSeconds;
+            };
+          in
+          lib.mkAfter ''
+            check program "bw-sync-${name}" with path "${lastRunCheck}"
+              group sync
+              every 2 cycles
+              if status > 0 then alert
+          ''
+        )
+      ) enabledSyncs)
+    );
   };
 }

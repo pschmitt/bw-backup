@@ -94,6 +94,13 @@ rbw_cleanup_account() {
   local account="$1"
   rbw --account "$account" lock &>/dev/null || true
   rbw --account "$account" purge &>/dev/null || true
+  # Force-terminate this account's rbw-agent rather than leaving it running
+  # in the background: a oneshot systemd job has no business keeping a
+  # long-lived daemon alive after it exits, and a lingering agent process
+  # left in the unit's cgroup causes "Found left-over process ... in
+  # control group" warnings (and, worse, a stale agent) on the job's next
+  # run.
+  rbw --account "$account" stop-agent &>/dev/null || true
 }
 
 # Idempotent: looks up an organization by name, creating it if missing.

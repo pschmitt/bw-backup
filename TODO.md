@@ -330,3 +330,70 @@ config.json all confirmed by inspecting the build output directly.
         this run also hit a transient `rbw login: ... api request
         returned error: 500` from bitwarden.com on the source account --
         unrelated to this fix, resolved on a plain retry.
+
+## 13. Multi-job restructuring (services.bw-backup.backups.<name> / services.bw-sync.syncs.<name>)
+
+43. [x] Requested: define several independent sync (and backup) jobs in
+        Nix, each with its own systemd service+timer, the way
+        `services.restic.backups.<name>` works -- rather than one fixed
+        `bw-backup`/`bw-sync` job (plus a single hardcoded "collections"
+        variant of the latter). Rewrote `nix/module.nix`:
+        - `services.bw-backup.backups.<name>` / `services.bw-sync.syncs.<name>`
+          (`types.attrsOf submodule`), each generating an independent
+          `bw-backup-<name>`/`bw-sync-<name>` service+timer+Monit check.
+          `enable` (default true, per job) replaces the old top-level
+          `services.bw-backup.enable`/`services.bw-sync.enable`.
+        - `mode` (`"personal"`/`"collections"`) and `collections.org`/
+          `collections.names` now live directly on each sync job -- the
+          old separate `services.bw-sync.collections` sub-block is gone;
+          a "collections" job is just a sync job like any other, with
+          `mode = "collections"`.
+        - `backupPath`/`workDir` now default to `/var/lib/bw-backup/<name>`/
+          `/var/lib/bw-sync/<name>` (previously fixed paths), so jobs
+          don't clobber each other's state without the user having to
+          think about it.
+        - Jobs of the same kind (all backups, or all syncs) still share
+          one system user/group and one rendered `rbw` `config.json`
+          listing every account any of that kind's *enabled* jobs use --
+          rbw's multi-account support already keys everything off
+          `--account`, so per-job Unix users would've been pure overhead.
+          Accounts referenced by more than one job are deduplicated by
+          name; a new assertion catches the case where the same name is
+          given conflicting email/baseUrl/ssoId across jobs (rather than
+          silently picking whichever job's copy happened to win).
+        - The `collections` mode requires `collections.org`/
+          `collections.names` assertion moved from a single fixed check to
+          one generated per sync job (`services.bw-sync.syncs.<name>: mode
+          = "collections" requires ...`).
+        Verified via `lib.evalModules`/`eval-config.nix` directly (no real
+        host needed for this): two backup jobs + two sync jobs (one
+        `personal`, one `collections`) produce exactly the expected
+        `bw-backup-personal`/`bw-backup-work`/`bw-sync-personal`/
+        `bw-sync-org-collections` services and timers, each with the
+        correct per-job environment (`DEST_BW_PURGE_VAULT` only on the
+        personal-mode job, `DEST_BW_ORG`/`DEST_BW_COLLECTIONS` only on the
+        collections-mode job); the two accounts shared across both sync
+        jobs (`personal` source, `vaultwarden` dest) collapse to one entry
+        each in the rendered `config.json` rather than duplicating; the
+        account-conflict assertion and the collections-mode assertion both
+        fire correctly when deliberately triggered. `nixfmt` and `statix
+        check` both clean.
+44. [x] Requested alongside the above: force-terminate `rbw-agent` when a
+        job ends, rather than leaving it running in the background --
+        exactly the "Found left-over process ... in control group"
+        warning observed during today's real `bw-sync-collections` runs.
+        Two layers:
+        - `lib.sh`'s `rbw_cleanup_account` (already called for every
+          account on script exit via each script's own `trap ... EXIT INT
+          TERM`) now also calls `rbw --account "$account" stop-agent`.
+          This is the primary path -- catches normal exits, failures, and
+          `SIGTERM` (bash traps still run).
+        - `nix/module.nix`: every generated service also gets an
+          `ExecStopPost` running a new `mkAgentStopScript`-generated
+          script that force-stops `rbw-agent` for that job's account(s),
+          as a backstop for the case where the process is `SIGKILL`ed
+          (OOM, `TimeoutStartSec` escalation past `SIGTERM`) and the
+          bash trap never runs at all.
+        Downstream (nixos-config.git) still needs updating to the new
+        `backups.<name>`/`syncs.<name>` schema before this can be
+        redeployed and live-verified against rofl-10.

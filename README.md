@@ -98,9 +98,13 @@ podman run -it --rm \
 - `BW_SYNC_MODE` (optional, default: `personal`):
   - `personal`: mirror the entire source vault into the destination
     account's personal vault, 1:1.
-  - `collections`: mirror the entire source vault into one or more
-    destination organization collections (see below), each getting its
-    own independent full mirror.
+  - `collections`: mirror into one or more destination organization
+    collections (see below). Each configured name is handled based on
+    whether the source account has a same-named collection: if so, that
+    destination collection gets a scoped 1:1 mirror of just that source
+    collection; if not, it gets a full mirror of the entire source vault
+    instead (e.g. useful for a "whole vault" collection with no
+    source-side counterpart).
 - `DEST_BW_PURGE_VAULT` (optional, `personal` mode only): if set to `1`,
   wipes the destination's personal vault before importing (server-side
   purge, same as `rbw purge-vault`). Entries in an org collection are
@@ -109,7 +113,8 @@ podman run -it --rm \
   the destination organization name and a comma-separated list of
   collection names to mirror into, e.g.
   `DEST_BW_COLLECTIONS="default,Some Other Collection"`. The org and any
-  missing collections are created automatically.
+  missing collections are created automatically. The source account is
+  only ever read, never modified.
 - `BW_SYNC_ATTACHMENTS` (optional, default: `1`): set to `0` to skip
   attachments.
 - `BW_SYNC_OVERWRITE` (optional, default: `1`): set to `0` to leave
@@ -118,12 +123,67 @@ podman run -it --rm \
 
 ## NixOS module
 
-`flake.nix` exports `nixosModules.default`, providing
-`services.bw-backup` and `services.bw-sync` (with a nested
-`services.bw-sync.collections` for the org/collection job). Both render
-their own `rbw` `config.json` declaratively and run the same `rbw
-register` automation described above from `environmentFiles`-supplied env
-vars. See `nix/module.nix` for the full option list.
+`flake.nix` exports `nixosModules.default`, providing `services.bw-backup`
+and `services.bw-sync`. Both are collections of independent, named jobs --
+`services.bw-backup.backups.<name>` and `services.bw-sync.syncs.<name>` --
+the same way `services.restic.backups.<name>` works: each named job gets
+its own systemd service+timer (`bw-backup-<name>`/`bw-sync-<name>`), own
+schedule, own accounts, own Monit check, and can be enabled/disabled
+independently. Jobs of the same kind (all backups, or all syncs) share one
+system user/group and one declaratively-rendered `rbw` `config.json`
+listing every account any of that kind's jobs use (rbw's own multi-account
+support already keys everything off `--account`, so there's no need for
+separate Unix users per job). The same `rbw register` automation described
+above runs per-job from that job's own `environmentFiles`-supplied env
+vars. Every job's systemd unit also force-terminates `rbw-agent` for its
+account(s) on exit (`ExecStopPost`, regardless of success/failure) -- a
+oneshot job has no business leaving a background agent running, and a
+lingering one causes `systemd` to log a "left-over process in control
+group" warning on the job's next run.
+
+```nix
+services.bw-backup.backups.personal = {
+  account = {
+    name = "personal";
+    email = "me@example.com";
+  };
+  environmentFiles = [ config.sops.secrets."bw-backup-personal".path ];
+};
+
+services.bw-sync.syncs.personal = {
+  sourceAccount = {
+    name = "personal";
+    email = "me@example.com";
+  };
+  destAccount = {
+    name = "vaultwarden";
+    email = "me@example.com";
+    baseUrl = "https://vault.example.com";
+  };
+  purgeDestination = true;
+  environmentFiles = [ config.sops.secrets."bw-sync-personal".path ];
+};
+
+services.bw-sync.syncs.org-collections = {
+  sourceAccount = {
+    name = "personal";
+    email = "me@example.com";
+  };
+  destAccount = {
+    name = "vaultwarden";
+    email = "me@example.com";
+    baseUrl = "https://vault.example.com";
+  };
+  mode = "collections";
+  collections = {
+    org = "Example-Org";
+    names = [ "Shared" ];
+  };
+  environmentFiles = [ config.sops.secrets."bw-sync-org-collections".path ];
+};
+```
+
+See `nix/module.nix` for the full option list.
 
 ## How do I decrypt my backup?
 
