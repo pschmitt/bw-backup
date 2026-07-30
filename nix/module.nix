@@ -534,23 +534,27 @@ in
 
     systemd = {
       tmpfiles.rules = lib.unique (
+        # `d` (not `z`/`Z`): the latter only adjust an *existing* path's
+        # mode/owner and silently no-op if it's missing -- a job renamed (or
+        # newly added) gets a workDir/backupPath that's never existed on
+        # disk yet, so it must actually be created here, not just chmod'd.
         (lib.mapAttrsToList (
-          _: job: "Z ${job.backupPath} 0750 ${cfg.backupUser} ${cfg.backupGroup} -"
+          _: job: "d ${job.backupPath} 0750 ${cfg.backupUser} ${cfg.backupGroup} -"
         ) enabledBackups)
         ++ (lib.mapAttrsToList (
-          _: job: "Z ${job.workDir} 0750 ${cfg.syncUser} ${cfg.syncGroup} -"
+          _: job: "d ${job.workDir} 0750 ${cfg.syncUser} ${cfg.syncGroup} -"
         ) enabledSyncs)
         ++ (lib.concatMap (
           job:
           lib.optional (
             dirOf job.backupPath != config.users.users.${cfg.backupUser}.home
-          ) "z ${dirOf job.backupPath} 0750 ${cfg.backupUser} ${cfg.backupGroup} -"
+          ) "d ${dirOf job.backupPath} 0750 ${cfg.backupUser} ${cfg.backupGroup} -"
         ) (lib.attrValues enabledBackups))
         ++ (lib.concatMap (
           job:
           lib.optional (
             dirOf job.workDir != config.users.users.${cfg.syncUser}.home
-          ) "z ${dirOf job.workDir} 0750 ${cfg.syncUser} ${cfg.syncGroup} -"
+          ) "d ${dirOf job.workDir} 0750 ${cfg.syncUser} ${cfg.syncGroup} -"
         ) (lib.attrValues enabledSyncs))
         ++ (lib.optionals anyBackups (rbwConfigTmpfiles {
           user = cfg.backupUser;
