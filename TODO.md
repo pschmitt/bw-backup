@@ -475,3 +475,50 @@ config.json all confirmed by inspecting the build output directly.
         this exact transient error has shown up this session; worth
         keeping in mind if it becomes frequent enough to need
         retry-with-backoff in the scripts themselves, but not yet).
+
+## 15. Merge services.rbw-auto-backup/services.rbw-auto-sync into services.rbw-auto
+
+49. [x] Collapsed the two separate NixOS option namespaces into one
+        `services.rbw-auto`, since backup and sync were never
+        conceptually distinct services -- just two job kinds under one
+        tool. `package`/`user`/`group` (per kind) became
+        `backupPackage`/`backupUser`/`backupGroup` and
+        `syncPackage`/`syncUser`/`syncGroup`; `backups`/`syncs` (the
+        attrsOf-submodule job lists) became `backupJobs`/`syncJobs`.
+        Also renamed the `syncJobs` job key `org-collections` ->
+        `collections` (the module's own `collections.{org,names}`
+        sub-option name was already `collections`, so this job is now
+        addressed as `syncJobs.collections.collections.{org,names}` --
+        slightly repetitive to read, but matches exactly what was asked
+        for). Generated systemd unit names are unchanged (still
+        `rbw-auto-backup-<name>`/`rbw-auto-sync-<name>`) -- only the Nix
+        option structure moved, so the `org-collections` job's unit
+        becomes `rbw-auto-sync-collections` purely because the job's
+        own name changed, not because of any unit-naming scheme change.
+        Verified via `nix-instantiate --parse`, `statix check` (clean),
+        and a real `eval-config.nix`-based module eval asserting the
+        expected unit descriptions/timers/user names come out of the
+        merged options.
+50. [x] Updated nixos-config.git's `services/backups/bitwarden.nix` to
+        the new option paths (`services.rbw-auto.backupJobs.personal`,
+        `services.rbw-auto.syncJobs.personal`/`.collections`) and the
+        `systemd.services` `TimeoutStartSec` override's unit name
+        (`rbw-auto-sync-org-collections` -> `rbw-auto-sync-collections`).
+51. [x] Mid-merge, Philipp noticed the "🔖 google.com
+        (philipp@schmitt.co)" entry's org-collection mirror copy (in
+        the "Private vault" destination collection) was missing its
+        passkey even after the fido2Credentials fix had shipped.
+        Traced the full wire-format path for org-scoped bulk import
+        (`import_organization_ciphers` -> `import_cipher_req` ->
+        `cipher_type_and_fields` -> `CipherLogin.fido2_credentials`,
+        and `editable_to_encrypted`'s org-aware re-encryption of each
+        fido2 sub-field) and confirmed it's correct end-to-end -- not a
+        code bug. Root cause was timing: that entry's last
+        `rbw-auto-sync-org-collections` run (12:57-13:00) landed right
+        on top of an in-flight `nixos-rebuild switch` (started 12:56:21)
+        and used a not-yet-fully-switched-in build, while the
+        `rbw-auto-sync-personal` run at 14:32 (after the *next* switch,
+        14:27:28, had settled) got it right. Manually re-triggered
+        `rbw-auto-sync-org-collections.service` once the configuration
+        had settled; the freshly recreated entry now carries the
+        passkey correctly, confirmed via `rbw show`.

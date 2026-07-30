@@ -8,8 +8,7 @@
 let
   inherit (lib) mkOption types;
 
-  backupCfg = config.services.rbw-auto-backup;
-  syncCfg = config.services.rbw-auto-sync;
+  cfg = config.services.rbw-auto;
 
   # systemd's `Environment=` word-splits unquoted values on whitespace, so a
   # value containing a space (an org/collection name, say) silently gets
@@ -374,8 +373,8 @@ let
     }
   );
 
-  enabledBackups = lib.filterAttrs (_: b: b.enable) backupCfg.backups;
-  enabledSyncs = lib.filterAttrs (_: s: s.enable) syncCfg.syncs;
+  enabledBackups = lib.filterAttrs (_: b: b.enable) cfg.backupJobs;
+  enabledSyncs = lib.filterAttrs (_: s: s.enable) cfg.syncJobs;
 
   anyBackups = enabledBackups != { };
   anySyncs = enabledSyncs != { };
@@ -402,27 +401,27 @@ let
 in
 {
   options = {
-    services.rbw-auto-backup = {
-      package = mkOption {
+    services.rbw-auto = {
+      backupPackage = mkOption {
         type = types.package;
         default = pkgs.callPackage ./rbw-auto-backup.nix { };
         defaultText = lib.literalExpression "pkgs.callPackage ./rbw-auto-backup.nix { }";
         description = "Package providing the rbw-auto-backup script.";
       };
 
-      user = mkOption {
+      backupUser = mkOption {
         type = types.str;
         default = "bw-backup";
         description = "System user used to run backup jobs.";
       };
 
-      group = mkOption {
+      backupGroup = mkOption {
         type = types.str;
         default = "bw-backup";
         description = "System group used to run backup jobs.";
       };
 
-      backups = mkOption {
+      backupJobs = mkOption {
         type = types.attrsOf backupJobModule;
         default = { };
         description = ''
@@ -440,29 +439,27 @@ in
           }
         '';
       };
-    };
 
-    services.rbw-auto-sync = {
-      package = mkOption {
+      syncPackage = mkOption {
         type = types.package;
         default = pkgs.callPackage ./rbw-auto-sync.nix { };
         defaultText = lib.literalExpression "pkgs.callPackage ./rbw-auto-sync.nix { }";
         description = "Package providing the rbw-auto-sync script.";
       };
 
-      user = mkOption {
+      syncUser = mkOption {
         type = types.str;
         default = "bw-sync";
         description = "System user used to run sync jobs.";
       };
 
-      group = mkOption {
+      syncGroup = mkOption {
         type = types.str;
         default = "bw-sync";
         description = "System group used to run sync jobs.";
       };
 
-      syncs = mkOption {
+      syncJobs = mkOption {
         type = types.attrsOf syncJobModule;
         default = { };
         description = ''
@@ -479,12 +476,12 @@ in
               purgeDestination = true;
               environmentFiles = [ config.sops.secrets."rbw-auto-sync-personal".path ];
             };
-            org-collections = {
+            collections = {
               sourceAccount = { name = "personal"; email = "me@example.com"; };
               destAccount = { name = "vaultwarden"; email = "me@example.com"; baseUrl = "https://vault.example.com"; };
               mode = "collections";
               collections = { org = "Example-Org"; names = [ "Shared" ]; };
-              environmentFiles = [ config.sops.secrets."rbw-auto-sync-org-collections".path ];
+              environmentFiles = [ config.sops.secrets."rbw-auto-sync-collections".path ];
             };
           }
         '';
@@ -499,37 +496,37 @@ in
           (conflictingAccountNames backupAccountsRaw == [ ])
           && (conflictingAccountNames syncAccountsRaw == [ ]);
         message = ''
-          services.rbw-auto-backup/rbw-auto-sync: the same rbw account name
-          is used by more than one job with different email/baseUrl/ssoId.
-          All jobs sharing an account name must describe it identically.
+          services.rbw-auto: the same rbw account name is used by more than
+          one job with different email/baseUrl/ssoId. All jobs sharing an
+          account name must describe it identically.
         '';
       }
     ]
     ++ (lib.mapAttrsToList (name: job: {
       assertion =
         job.mode != "collections" || (job.collections.org != null && job.collections.names != [ ]);
-      message = "services.rbw-auto-sync.syncs.${name}: mode = \"collections\" requires collections.org and a non-empty collections.names";
+      message = "services.rbw-auto.syncJobs.${name}: mode = \"collections\" requires collections.org and a non-empty collections.names";
     }) enabledSyncs);
 
     users.groups = lib.mkMerge [
-      (lib.mkIf anyBackups { ${backupCfg.group} = { }; })
-      (lib.mkIf anySyncs { ${syncCfg.group} = { }; })
+      (lib.mkIf anyBackups { ${cfg.backupGroup} = { }; })
+      (lib.mkIf anySyncs { ${cfg.syncGroup} = { }; })
     ];
 
     users.users = lib.mkMerge [
       (lib.mkIf anyBackups {
-        ${backupCfg.user} = {
+        ${cfg.backupUser} = {
           isSystemUser = true;
-          inherit (backupCfg) group;
-          home = "/var/lib/${backupCfg.user}";
+          group = cfg.backupGroup;
+          home = "/var/lib/${cfg.backupUser}";
           createHome = true;
         };
       })
       (lib.mkIf anySyncs {
-        ${syncCfg.user} = {
+        ${cfg.syncUser} = {
           isSystemUser = true;
-          inherit (syncCfg) group;
-          home = "/var/lib/${syncCfg.user}";
+          group = cfg.syncGroup;
+          home = "/var/lib/${cfg.syncUser}";
           createHome = true;
         };
       })
@@ -538,31 +535,33 @@ in
     systemd = {
       tmpfiles.rules = lib.unique (
         (lib.mapAttrsToList (
-          _: job: "Z ${job.backupPath} 0750 ${backupCfg.user} ${backupCfg.group} -"
+          _: job: "Z ${job.backupPath} 0750 ${cfg.backupUser} ${cfg.backupGroup} -"
         ) enabledBackups)
         ++ (lib.mapAttrsToList (
-          _: job: "Z ${job.workDir} 0750 ${syncCfg.user} ${syncCfg.group} -"
+          _: job: "Z ${job.workDir} 0750 ${cfg.syncUser} ${cfg.syncGroup} -"
         ) enabledSyncs)
         ++ (lib.concatMap (
           job:
           lib.optional (
-            dirOf job.backupPath != config.users.users.${backupCfg.user}.home
-          ) "z ${dirOf job.backupPath} 0750 ${backupCfg.user} ${backupCfg.group} -"
+            dirOf job.backupPath != config.users.users.${cfg.backupUser}.home
+          ) "z ${dirOf job.backupPath} 0750 ${cfg.backupUser} ${cfg.backupGroup} -"
         ) (lib.attrValues enabledBackups))
         ++ (lib.concatMap (
           job:
           lib.optional (
-            dirOf job.workDir != config.users.users.${syncCfg.user}.home
-          ) "z ${dirOf job.workDir} 0750 ${syncCfg.user} ${syncCfg.group} -"
+            dirOf job.workDir != config.users.users.${cfg.syncUser}.home
+          ) "z ${dirOf job.workDir} 0750 ${cfg.syncUser} ${cfg.syncGroup} -"
         ) (lib.attrValues enabledSyncs))
         ++ (lib.optionals anyBackups (rbwConfigTmpfiles {
-          inherit (backupCfg) user group;
-          home = config.users.users.${backupCfg.user}.home;
+          user = cfg.backupUser;
+          group = cfg.backupGroup;
+          home = config.users.users.${cfg.backupUser}.home;
           accounts = backupAccounts;
         }))
         ++ (lib.optionals anySyncs (rbwConfigTmpfiles {
-          inherit (syncCfg) user group;
-          home = config.users.users.${syncCfg.user}.home;
+          user = cfg.syncUser;
+          group = cfg.syncGroup;
+          home = config.users.users.${cfg.syncUser}.home;
           accounts = syncAccounts;
         }))
       );
@@ -574,8 +573,8 @@ in
             description = "Bitwarden backup (${name})";
             serviceConfig = {
               Type = "oneshot";
-              User = backupCfg.user;
-              Group = backupCfg.group;
+              User = cfg.backupUser;
+              Group = cfg.backupGroup;
               WorkingDirectory = job.backupPath;
               ReadWritePaths = [ job.backupPath ];
               EnvironmentFile = job.environmentFiles;
@@ -594,7 +593,7 @@ in
                   clientSecretVar = "BW_BACKUP_REGISTER_CLIENT_SECRET";
                 })
               ]}";
-              ExecStart = "${backupCfg.package}/bin/rbw-auto-backup";
+              ExecStart = "${cfg.backupPackage}/bin/rbw-auto-backup";
               ExecStopPost = "${mkAgentStopScript "rbw-auto-backup-${name}" [ job.account.name ]}";
             };
           }
@@ -605,8 +604,8 @@ in
             description = "Bitwarden vault mirror sync (${name}, ${job.mode})";
             serviceConfig = {
               Type = "oneshot";
-              User = syncCfg.user;
-              Group = syncCfg.group;
+              User = cfg.syncUser;
+              Group = cfg.syncGroup;
               WorkingDirectory = job.workDir;
               ReadWritePaths = [ job.workDir ];
               EnvironmentFile = job.environmentFiles;
@@ -638,7 +637,7 @@ in
                   clientSecretVar = "DEST_REGISTER_CLIENT_SECRET";
                 })
               ]}";
-              ExecStart = "${syncCfg.package}/bin/rbw-auto-sync";
+              ExecStart = "${cfg.syncPackage}/bin/rbw-auto-sync";
               ExecStopPost = "${mkAgentStopScript "rbw-auto-sync-${name}" [
                 job.sourceAccount.name
                 job.destAccount.name
