@@ -27,7 +27,9 @@ For interactive Android/Termux use, install the
 `rbw`. It includes native `termux-keystore` unlock
 support; configure `accounts.<name>.unlock.termux` in rbw's
 `config.json` after running the one-step `rbw termux enroll` flow. The
-container jobs documented here continue
+enrollment alias defaults to `rbw-<account>`; set `termux_key_alias` in
+`config.json` or `RBW_TERMUX_KEY_ALIAS` to reuse a different Keystore key.
+The container jobs documented here continue
 to receive their password through their existing environment-file mechanism.
 
 *Note on bitwarden.com*: the official server requires a one-time `rbw
