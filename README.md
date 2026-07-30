@@ -24,7 +24,7 @@ renders it from env vars on every start.
 
 For interactive Android/Termux use, install the
 [pschmitt/rbw fork](https://github.com/pschmitt/rbw) rather than upstream
-`rbw`. It includes native `termux-keystore`/`termux-fingerprint` unlock
+`rbw`. It includes native `termux-keystore` unlock
 support; configure `accounts.<name>.unlock.termux` in rbw's
 `config.json` after running the one-step `rbw termux enroll` flow. The
 container jobs documented here continue
