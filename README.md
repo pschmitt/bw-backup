@@ -188,15 +188,44 @@ See `nix/module.nix` for the full option list.
 
 ## How do I decrypt my backup?
 
-`rbw export --encrypt` wraps the JSON export in a tar.gz before
-gpg-encrypting it, so decrypting yields a tar.gz (extract it to get at the
-JSON):
+Use the `rbw` fork from [pschmitt/rbw](https://github.com/pschmitt/rbw) for
+inspection and conversion. It understands the archive format produced by
+`rbw-auto` directly, so there is normally no need to manually invoke `gpg`
+or unpack the tarball. Set the same passphrase used by `ENCRYPTION_PASSPHRASE`
+in `RBW_EXPORT_PASSPHRASE`:
 
 ```shell
-gpg --batch --yes --passphrase "mySecret1234" --decrypt \
-  --output decrypted.tar.gz \
-  data/bw-export-xxx.tar.gz.gpg
-tar xzf decrypted.tar.gz
+export RBW_EXPORT_PASSPHRASE='mySecret1234'
+
+rbw list --from-file data/bw-export-xxx.tar.gz.gpg
+rbw get --from-file data/bw-export-xxx.tar.gz.gpg github
+rbw show --from-file data/bw-export-xxx.tar.gz.gpg github
 ```
 
-There's also a wrapper script for the decrypt step: [decrypt.sh](decrypt.sh)
+For an interactive browser, use the TUI. Add `--write` to edit the exported
+file; write operations create a `.bak` next to it before changing anything:
+
+```shell
+rbw tui --from-file data/bw-export-xxx.tar.gz.gpg
+rbw tui --from-file data/bw-export-xxx.tar.gz.gpg --write
+```
+
+The other file-backed commands include `list`, `search`, `code`, `history`,
+`add`, `edit`, `set`, `remove`/`delete`, `archive`, `unarchive`, `restore`,
+and `attachment list/get/create/rm`. For example:
+
+```shell
+rbw attachment list --from-file data/bw-export-xxx.tar.gz.gpg github
+rbw export --from-file data/bw-export-xxx.tar.gz.gpg \
+  --format bitwarden-json --output vault.json
+rbw export --from-file data/bw-export-xxx.tar.gz.gpg \
+  --format bitwarden-csv --output vault.csv
+```
+
+If putting the passphrase in the environment is not suitable, every
+`--from-file` command accepts `--from-file-passphrase PASSPHRASE`; this may
+be exposed through `ps` and shell history. `--attachments` must have been
+used when the backup was created if attachment contents should be available
+to the TUI, attachment commands, or zip conversion. The legacy
+[decrypt.sh](decrypt.sh) wrapper remains available, but the native `rbw`
+commands preserve the export format and support direct querying/conversion.
