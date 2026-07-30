@@ -94,7 +94,6 @@ let
   # register endpoint when the account still needs its first login.
   mkRegisterCheck =
     {
-      package,
       account,
       clientIdVar,
       clientSecretVar,
@@ -103,7 +102,7 @@ let
       if [[ -n "''${${clientIdVar}:-}" && -n "''${${clientSecretVar}:-}" ]]
       then
         printf '%s\n%s\n' "''${${clientIdVar}}" "''${${clientSecretVar}}" |
-          ${package}/bin/rbw --account ${lib.escapeShellArg account} register --stdin
+          ${pkgs.rbw}/bin/rbw --account ${lib.escapeShellArg account} register --stdin
       fi
     '';
 
@@ -116,7 +115,6 @@ let
 
   backupRegisterScript = mkRegisterScript "bw-backup" [
     (mkRegisterCheck {
-      inherit (backupCfg) package;
       account = backupCfg.account.name;
       clientIdVar = "BW_BACKUP_REGISTER_CLIENT_ID";
       clientSecretVar = "BW_BACKUP_REGISTER_CLIENT_SECRET";
@@ -125,13 +123,11 @@ let
 
   syncRegisterScript = mkRegisterScript "bw-sync" [
     (mkRegisterCheck {
-      inherit (syncCfg) package;
       account = syncCfg.sourceAccount.name;
       clientIdVar = "SRC_REGISTER_CLIENT_ID";
       clientSecretVar = "SRC_REGISTER_CLIENT_SECRET";
     })
     (mkRegisterCheck {
-      inherit (syncCfg) package;
       account = syncCfg.destAccount.name;
       clientIdVar = "DEST_REGISTER_CLIENT_ID";
       clientSecretVar = "DEST_REGISTER_CLIENT_SECRET";
