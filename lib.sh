@@ -150,3 +150,13 @@ rbw_ensure_collection() {
 
   printf '%s\n' "$id"
 }
+
+# Lookup-only (never creates): prints the id of a collection matching
+# $collection_name exactly, or nothing if no such collection exists.
+rbw_find_collection_id() {
+  local account="$1"
+  local collection_name="$2"
+
+  rbw --account "$account" collection list --raw 2>/dev/null |
+    jq -r --arg n "$collection_name" '(map(select(.name == $n)) | .[0].id) // empty'
+}

@@ -111,13 +111,21 @@ mirror_personal() {
   fi
 }
 
-# Full mirror into one or more org collections. Each collection is an
-# independent full mirror of the source vault (not a folder/tag split):
-# stale entries removed from the source are also removed from that
-# collection, via rbw mirror's --purge-dest --dest-collection (a scoped
-# purge of just that collection -- no master-password reproof needed, unlike
-# the whole-vault purge above). The org and each collection are created if
-# they don't already exist.
+# Mirror into one or more org collections. Each configured name is handled
+# one of two ways, decided by whether the SOURCE account has a collection
+# with that exact name:
+#   - match found: scoped 1:1 mirror of just that source collection into the
+#     same-named destination collection (--collection --dest-collection
+#     --overwrite). rbw mirror refuses --purge-dest together with a
+#     source-side --collection scope, so stale destination entries are left
+#     in place rather than purged.
+#   - no match: full mirror of the entire source vault into that destination
+#     collection (--dest-collection --purge-dest), same as before -- this is
+#     how a collection can hold a full copy of the vault (e.g. a personal
+#     vault mirrored into a dedicated collection) rather than a 1:1 copy of
+#     an equally-named source collection.
+# The org and each destination collection are created if they don't already
+# exist. The source account/vault is only ever read, never modified.
 mirror_collections() {
   if [[ -z "${DEST_BW_ORG:-}" ]]
   then
@@ -139,7 +147,7 @@ mirror_collections() {
   local -a collections
   IFS=',' read -ra collections <<< "$DEST_BW_COLLECTIONS"
 
-  local raw_name name rc=0
+  local raw_name name src_id rc=0
   for raw_name in "${collections[@]}"
   do
     name="$(trim "$raw_name")"
@@ -150,12 +158,25 @@ mirror_collections() {
       continue
     }
 
-    echo_info "Mirroring into collection: $name"
-    if ! rbw mirror --from "$SRC_ACCOUNT" --to "$DEST_ACCOUNT" --yes \
-      --dest-collection "$name" --purge-dest "${flags[@]}"
+    src_id=$(rbw_find_collection_id "$SRC_ACCOUNT" "$name")
+
+    if [[ -n "$src_id" ]]
     then
-      echo_error "Mirror into collection '$name' failed."
-      rc=1
+      echo_info "Mirroring source collection '$name' -> destination collection '$name'"
+      if ! rbw mirror --from "$SRC_ACCOUNT" --to "$DEST_ACCOUNT" --yes \
+        --collection "$src_id" --dest-collection "$name" "${flags[@]}"
+      then
+        echo_error "Mirror of collection '$name' failed."
+        rc=1
+      fi
+    else
+      echo_info "Mirroring entire vault -> destination collection: $name"
+      if ! rbw mirror --from "$SRC_ACCOUNT" --to "$DEST_ACCOUNT" --yes \
+        --dest-collection "$name" --purge-dest "${flags[@]}"
+      then
+        echo_error "Mirror into collection '$name' failed."
+        rc=1
+      fi
     fi
   done
 

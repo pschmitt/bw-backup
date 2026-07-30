@@ -247,3 +247,45 @@ config.json all confirmed by inspecting the build output directly.
         manual trigger) still hasn't been observed, so treat the
         purge-with-existing-entries case as the one remaining unverified
         edge until that happens naturally.
+
+## 12. Phase 4 correction: collections mode mirrored the whole vault into
+      every configured collection, not just a same-named source collection
+
+37. [x] Production feedback after §11 item 36: the source account's whole
+        personal vault ended up inside `Anika hat ihr Passwort vergessen`,
+        instead of only the entries that already lived in a source-side
+        collection of that name. Root cause: `mirror_collections` always
+        did a full-vault `--dest-collection NAME --purge-dest` mirror for
+        *every* configured name, with no way to instead scope to a
+        matching source collection.
+38. [x] Corrected design (confirmed with real production values, kept
+        generic here): some destination collections should be a full
+        vault mirror (when no source-side collection of that name
+        exists), others should be a scoped 1:1 mirror of an
+        equally-named source collection. Decided automatically per name,
+        not via separate config lists.
+39. [x] `lib.sh`: added `rbw_find_collection_id` -- lookup-only (never
+        creates, unlike `rbw_ensure_collection`/`rbw_ensure_org`), prints
+        the id of an exact-name match or nothing.
+40. [x] `bw-sync.sh`'s `mirror_collections`: for each configured
+        destination collection name, after ensuring it exists at the
+        destination, looks up a same-named collection on the *source*
+        via `rbw_find_collection_id`.
+        - match found: scoped mirror, `--collection <src-id>
+          --dest-collection NAME`, no `--purge-dest` (rbw's own guard
+          clause refuses combining `--purge-dest` with a source-side
+          `--collection`/`--org-id` scope -- stale destination entries in
+          a scoped collection are left in place rather than purged).
+        - no match: unchanged full-vault mirror,
+          `--dest-collection NAME --purge-dest` -- this is how a
+          collection can hold a full copy of the source vault (e.g. a
+          "personal vault" collection with no source-side counterpart)
+          rather than a 1:1 copy of an equally-named source collection.
+        The source account is only ever read here, never modified --
+        every rename/purge/create in response to this correction targets
+        the destination account exclusively.
+41. [ ] Downstream (nixos-config.git): update `collections.org` and
+        `collections.names` to the corrected real values, redeploy to
+        rofl-10, and re-run `bw-sync-collections.service` once to verify
+        the corrected mapping end-to-end against production. Not yet
+        done as of this writing.
