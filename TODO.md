@@ -307,7 +307,26 @@ config.json all confirmed by inspecting the build output directly.
         (`$org_id`, already resolved via `rbw_ensure_org`) on both
         `rbw mirror` call sites in `mirror_collections`. This also fixes
         the bug class generically, not just for this one collision.
-        Not yet re-verified end-to-end against production -- next step
-        is bumping nixos-config.git's `rbw`/`bw-backup` inputs again,
-        redeploying, and re-running `bw-sync-collections.service` to
-        confirm all three collections now mirror cleanly in one pass.
+
+        Also found and fixed while wiring this up: `bw-backup.git`
+        commits its own `flake.lock` with an independent `rbw` pin,
+        which had drifted stale (predating even the org-rename feature)
+        -- so bumping `bw-backup`'s input in nixos-config.git alone
+        wasn't enough, the *actual running binary* still lacked
+        `--dest-org` until `bw-backup.git`'s own lock was bumped too.
+        Fixed structurally by adding `bw-backup.inputs.rbw.follows =
+        "rbw"` in nixos-config.git's flake.nix, so the two can never
+        diverge again (confirmed via the resulting flake.lock: both
+        collapse to the same node/rev now).
+
+        **Re-verified end-to-end for real** after bumping both inputs,
+        redeploying to rofl-10, and re-running
+        `bw-sync-collections.service`: all three collections mirrored
+        cleanly in one pass (`Private vault` purged 2212 stale entries
+        from the earlier failed attempt and re-copied 2211 fresh;
+        `Anika hat ihr Passwort vergessen` updated its existing 175;
+        `Default collection` created its 28 with no ambiguity error this
+        time), service exited 0 / `Result=success`. The first attempt in
+        this run also hit a transient `rbw login: ... api request
+        returned error: 500` from bitwarden.com on the source account --
+        unrelated to this fix, resolved on a plain retry.
